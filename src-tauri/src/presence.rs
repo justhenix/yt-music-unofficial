@@ -10,7 +10,8 @@ use serde::Deserialize;
 use std::{
     fs,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::mpsc::{self, SyncSender},
+    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -18,9 +19,9 @@ const TITLE_PREFIX: &str = "YTMRPC:";
 const CLIENT_ID_ENV: &str = "YT_MUSIC_DISCORD_CLIENT_ID";
 const BUNDLED_CLIENT_ID: &str = include_str!("../discord-client-id.txt");
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct PresenceController {
-    inner: Arc<Mutex<PresenceState>>,
+    tx: SyncSender<TrackMetadata>,
 }
 
 #[derive(Default)]
@@ -32,13 +33,21 @@ struct PresenceState {
 
 impl PresenceController {
     pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(PresenceState {
+        let (tx, rx) = mpsc::sync_channel::<TrackMetadata>(1);
+
+        thread::spawn(move || {
+            let mut state = PresenceState {
                 client_id: read_client_id(),
                 client: None,
                 last_track: None,
-            })),
-        }
+            };
+
+            for track in rx {
+                update_presence_state(&mut state, track);
+            }
+        });
+
+        Self { tx }
     }
 
     pub fn update(&self, track: TrackMetadata) {
@@ -46,55 +55,54 @@ impl PresenceController {
             return;
         }
 
-        let mut state = match self.inner.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
+        let _ = self.tx.try_send(track);
+    }
+}
 
-        if state.last_track.as_ref() == Some(&track) {
-            return;
-        }
+fn update_presence_state(state: &mut PresenceState, track: TrackMetadata) {
+    if state.last_track.as_ref() == Some(&track) {
+        return;
+    }
 
-        let Some(client_id) = state.client_id.clone() else {
+    let Some(client_id) = state.client_id.clone() else {
+        state.last_track = Some(track);
+        return;
+    };
+
+    if state.client.is_none() {
+        let mut client = DiscordIpcClient::new(client_id);
+        if client.connect().is_err() {
             state.last_track = Some(track);
             return;
-        };
-
-        if state.client.is_none() {
-            let mut client = DiscordIpcClient::new(client_id);
-            if client.connect().is_err() {
-                state.last_track = Some(track);
-                return;
-            }
-            state.client = Some(client);
         }
+        state.client = Some(client);
+    }
 
-        let mut activity = Activity::new()
-            .activity_type(ActivityType::Listening)
-            .name("YouTube Music")
-            .details(track.title.clone());
+    let mut activity = Activity::new()
+        .activity_type(ActivityType::Listening)
+        .name("YouTube Music")
+        .details(track.title.clone());
 
-        if let Some(presence_state) = track.presence_state() {
-            activity = activity
-                .state(presence_state)
-                .status_display_type(StatusDisplayType::State);
-        }
+    if let Some(presence_state) = track.presence_state() {
+        activity = activity
+            .state(presence_state)
+            .status_display_type(StatusDisplayType::State);
+    }
 
-        let activity = apply_activity_urls(activity, &track);
-        let activity = apply_activity_assets(activity, &track);
-        let activity = apply_activity_timestamps(activity, &track);
-        let activity = apply_activity_buttons(activity, &track);
+    let activity = apply_activity_urls(activity, &track);
+    let activity = apply_activity_assets(activity, &track);
+    let activity = apply_activity_timestamps(activity, &track);
+    let activity = apply_activity_buttons(activity, &track);
 
-        let result = state
-            .client
-            .as_mut()
-            .map(|client| client.set_activity(activity));
+    let result = state
+        .client
+        .as_mut()
+        .map(|client| client.set_activity(activity));
 
-        if matches!(result, Some(Err(_))) {
-            state.client = None;
-        } else {
-            state.last_track = Some(track);
-        }
+    if matches!(result, Some(Err(_))) {
+        state.client = None;
+    } else {
+        state.last_track = Some(track);
     }
 }
 

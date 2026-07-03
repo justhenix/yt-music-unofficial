@@ -13,15 +13,15 @@ This app loads `https://music.youtube.com` in a native window, keeps your normal
 
 - Windows only.
 - Unofficial project, not affiliated with YouTube, Google, Discord, Microsoft, or Tauri.
-- Current release: [`v0.1.2`](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.2).
+- Current release: [`v0.1.3`](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.3).
 
 ## Download
 
 Use the NSIS setup installer for normal installs:
 
-[Download `YouTube.Music_0.1.2_x64-setup.exe`](https://github.com/justhenix/yt-music-unofficial/releases/download/v0.1.2/YouTube.Music_0.1.2_x64-setup.exe)
+[Download `YouTube.Music_0.1.3_x64-setup.exe`](https://github.com/justhenix/yt-music-unofficial/releases/download/v0.1.3/YouTube.Music_0.1.3_x64-setup.exe)
 
-An MSI package is also available on the [release page](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.2).
+An MSI package is also available on the [release page](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.3).
 
 ## Features
 
