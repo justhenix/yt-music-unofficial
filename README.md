@@ -1,32 +1,81 @@
-# YouTube Music Tauri
+# YouTube Music Unofficial
 
-Low-memory YouTube Music desktop wrapper built with Tauri v2.
+[![Release](https://img.shields.io/github/v/release/justhenix/yt-music-unofficial?label=release)](https://github.com/justhenix/yt-music-unofficial/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#requirements)
+[![Tauri](https://img.shields.io/badge/Tauri-v2-24C8DB)](https://tauri.app/)
+[![License](https://img.shields.io/github/license/justhenix/yt-music-unofficial)](LICENSE)
+
+Unofficial Windows desktop wrapper for YouTube Music, built with Tauri v2 and WebView2.
+
+This app loads `https://music.youtube.com` in a native window, keeps your normal YouTube account session, filters common ad/tracking requests, and publishes the current track to Discord Rich Presence.
+
+## Status
+
+- Windows only.
+- Unofficial project, not affiliated with YouTube, Google, Discord, Microsoft, or Tauri.
+- Current release: [`v0.1.2`](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.2).
+
+## Download
+
+Use the NSIS setup installer for normal installs:
+
+[Download `YouTube.Music_0.1.2_x64-setup.exe`](https://github.com/justhenix/yt-music-unofficial/releases/download/v0.1.2/YouTube.Music_0.1.2_x64-setup.exe)
+
+An MSI package is also available on the [release page](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.2).
 
 ## Features
 
-- Loads `https://music.youtube.com` directly in a native Tauri WebView2 window on Windows.
-- Persists YouTube login cookies in the app data profile.
-- Blocks common YouTube/Google ad and tracking requests through a native WebView2 request filter.
-- Injects a YouTube Music ad-control script to skip, mute, and remove ad UI served through first-party player paths.
-- Updates Discord Rich Presence from the current YouTube Music track without exposing Tauri IPC to the remote page.
-- Keeps a single app instance and restores window size/position.
+- Native Windows desktop window for YouTube Music.
+- Persistent login/session through the app WebView profile.
+- WebView2 request filtering for common YouTube/Google ad and tracking endpoints.
+- Page-side ad cleanup for skip buttons, popups, and ad UI.
+- Discord Rich Presence from the currently playing track.
+- Hardened title-message bridge so Rich Presence data is accepted only from YouTube Music.
+- Single-instance behavior and restored window size/position.
 
 ## Requirements
 
-- Node.js and npm.
-- Rust toolchain with Cargo for native Tauri builds.
-- Windows WebView2 runtime.
-- Discord desktop client running for Rich Presence.
+For installed releases:
 
-## Setup
+- Windows 10 or newer.
+- Microsoft Edge WebView2 Runtime.
+- Discord desktop client for Rich Presence.
+
+For local builds:
+
+- Node.js and npm.
+- Rust toolchain with Cargo.
+- Windows WebView2 Runtime.
+
+## Build From Source
 
 ```powershell
 npm install
+npm run build
 ```
 
-## Ad Block Verification
+Build outputs are written under:
 
-The app has a hidden self-test mode for the native blocker:
+```powershell
+src-tauri\target\release\bundle\
+```
+
+If `cargo` is not recognized, install Rust from [rust-lang.org/tools/install](https://www.rust-lang.org/tools/install), restart PowerShell, then rerun the build.
+
+## Discord Rich Presence
+
+Discord Rich Presence is configured from the bundled `src-tauri/discord-client-id.txt`.
+
+Advanced override:
+
+```powershell
+$env:YT_MUSIC_DISCORD_CLIENT_ID = "your_discord_application_id"
+npm run dev
+```
+
+## Ad Block Self-Test
+
+The app has a hidden self-test mode for the native request blocker:
 
 ```powershell
 $env:YT_MUSIC_ADBLOCK_SELF_TEST = "1"
@@ -35,30 +84,26 @@ Start-Process "$env:LOCALAPPDATA\YouTube Music\yt-music-tauri.exe"
 
 When the blocker is wired correctly, the window title briefly becomes `ADBLOCK_SELF_TEST:PASS`.
 
-Discord Rich Presence is configured from the bundled `src-tauri/discord-client-id.txt`.
-After the Discord Developer application is created once, the app ID is stored there and
-included in future builds. No launch-time environment variable is required.
+## Security Notes
 
-Advanced override: set `YT_MUSIC_DISCORD_CLIENT_ID` if you intentionally want to test
-against a different Discord application without rebuilding.
+- The remote YouTube Music page receives no Tauri permissions.
+- Rich Presence metadata is sent through a document-title bridge instead of exposing app IPC to the remote page.
+- Navigation is restricted to YouTube Music and expected Google/YouTube sign-in hosts.
+- Rich Presence buttons and artwork are limited to trusted YouTube, `ytimg.com`, and Googleusercontent hosts.
 
-## Build
+## Contributor Guide
 
-```powershell
-npm run build
-```
+- `src-tauri/src/lib.rs` builds the Tauri window and gates navigation/title messages.
+- `src-tauri/src/url_policy.rs` owns URL allow-lists for navigation and Discord Rich Presence.
+- `src-tauri/src/presence.rs` formats Discord Rich Presence data.
+- `src-tauri/src/track_probe.js` reads YouTube Music track state from the page.
+- `src-tauri/src/adblock.rs` contains native WebView2 request-blocking rules.
+- `src-tauri/src/adblock_probe.js` handles page-side ad skip and cleanup behavior.
 
-If `cargo` is not recognized, install Rust from https://www.rust-lang.org/tools/install, restart PowerShell, then rerun the build.
+Add or update unit tests when changing URL policy, ad URL rules, or security-sensitive bridge behavior.
 
-## Legal Notes
+## License
 
-- This project is unofficial and is not affiliated with YouTube, Google, Discord, Microsoft, or Tauri.
-- This repository is licensed under the MIT License.
-- Third-party dependency acknowledgements are listed in `THIRD_PARTY_NOTICES.md`.
+MIT. See [LICENSE](LICENSE).
 
-## Contributor Notes
-
-- Track and pause bugs usually belong in `src-tauri/src/track_probe.js`.
-- Ad URL rules belong in `src-tauri/src/adblock.rs`; add or update unit tests for each new rule.
-- Ad UI skip/cleanup rules belong in `src-tauri/src/adblock_probe.js`; keep skip-button selectors out of the removal list.
-- Discord Rich Presence formatting belongs in `src-tauri/src/presence.rs`.
+Third-party dependency acknowledgements are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
