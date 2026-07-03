@@ -5,9 +5,9 @@
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24C8DB)](https://tauri.app/)
 [![License](https://img.shields.io/github/license/justhenix/yt-music-unofficial)](LICENSE)
 
-Unofficial Windows desktop wrapper for YouTube Music, built with Tauri v2 and WebView2.
+Unofficial Windows desktop app for YouTube Music, built with Tauri v2 and WebView2.
 
-This app loads `https://music.youtube.com` in a native window, keeps your normal YouTube account session, filters common ad/tracking requests, and publishes the current track to Discord Rich Presence.
+This app gives YouTube Music its own dedicated Windows window, keeps your normal YouTube account session, filters common ad/tracking requests, and publishes the current track to Discord Rich Presence.
 
 ## Status
 
@@ -25,7 +25,7 @@ An MSI package is also available on the [release page](https://github.com/justhe
 
 ## Features
 
-- Low-memory native Windows wrapper for YouTube Music.
+- Dedicated Windows app window for YouTube Music.
 - Discord Rich Presence for the currently playing track.
 - Persistent YouTube login/session through the app WebView profile.
 - Built-in ad blocking with native request filtering and page-side ad cleanup.
