@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The remote YouTube Music webview intentionally receives no local Tauri permissions.",
+  "windows": ["main"],
+  "remote": {
+    "urls": [
+      "https://music.youtube.com/*",
+      "https://accounts.google.com/*",
+      "https://*.google.com/*",
+      "https://accounts.youtube.com/*",
+      "https://consent.youtube.com/*"
+    ]
+  },
+  "permissions": []
+}
