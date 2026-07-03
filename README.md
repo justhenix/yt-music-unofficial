@@ -25,13 +25,10 @@ An MSI package is also available on the [release page](https://github.com/justhe
 
 ## Features
 
-- Native Windows desktop window for YouTube Music.
-- Persistent login/session through the app WebView profile.
-- WebView2 request filtering for common YouTube/Google ad and tracking endpoints.
-- Page-side ad cleanup for skip buttons, popups, and ad UI.
-- Discord Rich Presence from the currently playing track.
-- Hardened title-message bridge so Rich Presence data is accepted only from YouTube Music.
-- Single-instance behavior and restored window size/position.
+- Low-memory native Windows wrapper for YouTube Music.
+- Discord Rich Presence for the currently playing track.
+- Persistent YouTube login/session through the app WebView profile.
+- Built-in ad blocking with native request filtering and page-side ad cleanup.
 
 ## Requirements
 
