@@ -7,7 +7,6 @@
     "urls": [
       "https://music.youtube.com/*",
       "https://accounts.google.com/*",
-      "https://*.google.com/*",
       "https://accounts.youtube.com/*",
       "https://consent.youtube.com/*"
     ]

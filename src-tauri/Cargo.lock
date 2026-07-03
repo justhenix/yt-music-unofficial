@@ -4801,7 +4801,7 @@ dependencies = [
 
 [[package]]
 name = "yt-music-tauri"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "discord-rich-presence",
  "serde",

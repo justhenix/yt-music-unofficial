@@ -1,9 +1,14 @@
+//! lib.rs
+//! Builds the Tauri window, injects page probes, and gates navigation/title messages.
+
 mod adblock;
 mod presence;
+mod url_policy;
 
 use presence::PresenceController;
 use tauri::webview::WebviewWindowBuilder;
-use tauri::{Manager, WebviewUrl};
+use tauri::{Manager, Url, WebviewUrl};
+use url_policy::{is_allowed_navigation_url, is_youtube_music_url};
 
 const YOUTUBE_MUSIC_URL: &str = "https://music.youtube.com";
 const AD_BLOCK_SCRIPT: &str = include_str!("adblock_probe.js");
@@ -60,15 +65,22 @@ pub fn run() {
                 .min_inner_size(900.0, 620.0)
                 .center()
                 .initialization_script(&initialization_script())
-                .on_navigation(|url| is_allowed_navigation_scheme(url.scheme()))
+                .on_navigation(is_allowed_navigation_url)
                 .on_document_title_changed(move |window, title| {
                     // track_probe.js sends JSON through document.title so the remote
                     // YouTube page never gets direct access to Tauri commands.
-                    if let Some(track) = presence::parse_track_title(&title) {
-                        let window_title = track.window_title();
-                        let _ = window.set_title(&window_title);
-                        presence_for_window.update(track);
-                    } else if !title.trim().is_empty() {
+                    if presence::is_track_title_message(&title) {
+                        if should_accept_track_title(window.url().ok().as_ref(), &title) {
+                            if let Some(track) = presence::parse_track_title(&title) {
+                                let window_title = track.window_title();
+                                let _ = window.set_title(&window_title);
+                                presence_for_window.update(track);
+                            }
+                        }
+                        return;
+                    }
+
+                    if !title.trim().is_empty() {
                         let _ = window.set_title(&title);
                     }
                 })
@@ -91,6 +103,36 @@ fn initialization_script() -> String {
     }
 }
 
-fn is_allowed_navigation_scheme(scheme: &str) -> bool {
-    matches!(scheme, "https" | "http" | "about" | "blob" | "data")
+fn should_accept_track_title(current_url: Option<&Url>, title: &str) -> bool {
+    presence::is_track_title_message(title) && current_url.is_some_and(is_youtube_music_url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_url(value: &str) -> Url {
+        Url::parse(value).expect("test URL must parse")
+    }
+
+    #[test]
+    fn accepts_track_titles_only_from_youtube_music() {
+        let title = r#"YTMRPC:{"title":"Song","artist":null,"album":null,"playing":true,"url":null,"cover_url":null,"elapsed_seconds":null,"duration_seconds":null}"#;
+        let music_url = parse_url("https://music.youtube.com/watch?v=x");
+        let account_url = parse_url("https://accounts.google.com/signin");
+
+        assert!(should_accept_track_title(Some(&music_url), title));
+        assert!(!should_accept_track_title(Some(&account_url), title));
+        assert!(!should_accept_track_title(None, title));
+    }
+
+    #[test]
+    fn ignores_non_track_titles_for_track_bridge() {
+        let music_url = parse_url("https://music.youtube.com/");
+
+        assert!(!should_accept_track_title(
+            Some(&music_url),
+            "YouTube Music"
+        ));
+    }
 }

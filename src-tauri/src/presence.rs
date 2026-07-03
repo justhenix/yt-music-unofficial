@@ -1,3 +1,7 @@
+//! presence.rs
+//! Converts trusted YouTube Music track metadata into Discord Rich Presence updates.
+
+use crate::url_policy::{valid_artwork_url, valid_track_url};
 use discord_rich_presence::{
     activity::{Activity, ActivityType, Assets, Button, StatusDisplayType, Timestamps},
     DiscordIpc, DiscordIpcClient,
@@ -140,6 +144,10 @@ pub fn parse_track_title(title: &str) -> Option<TrackMetadata> {
     serde_json::from_str::<TrackMetadata>(payload).ok()
 }
 
+pub fn is_track_title_message(title: &str) -> bool {
+    title.starts_with(TITLE_PREFIX)
+}
+
 fn read_client_id() -> Option<String> {
     std::env::var(CLIENT_ID_ENV)
         .ok()
@@ -190,7 +198,7 @@ fn normalize_client_id(value: impl AsRef<str>) -> String {
 }
 
 fn apply_activity_urls<'a>(activity: Activity<'a>, track: &'a TrackMetadata) -> Activity<'a> {
-    let Some(url) = valid_https_url(track.url.as_deref()) else {
+    let Some(url) = valid_track_url(track.url.as_deref()) else {
         return activity;
     };
 
@@ -198,7 +206,7 @@ fn apply_activity_urls<'a>(activity: Activity<'a>, track: &'a TrackMetadata) -> 
 }
 
 fn apply_activity_assets<'a>(activity: Activity<'a>, track: &'a TrackMetadata) -> Activity<'a> {
-    let Some(cover_url) = valid_https_url(track.cover_url.as_deref()) else {
+    let Some(cover_url) = valid_artwork_url(track.cover_url.as_deref()) else {
         return activity;
     };
 
@@ -206,7 +214,7 @@ fn apply_activity_assets<'a>(activity: Activity<'a>, track: &'a TrackMetadata) -
         .large_image(cover_url)
         .large_text(track.asset_text());
 
-    if let Some(track_url) = valid_https_url(track.url.as_deref()) {
+    if let Some(track_url) = valid_track_url(track.url.as_deref()) {
         assets = assets.large_url(track_url);
     }
 
@@ -240,20 +248,11 @@ fn apply_activity_timestamps<'a>(activity: Activity<'a>, track: &TrackMetadata) 
 }
 
 fn apply_activity_buttons<'a>(activity: Activity<'a>, track: &'a TrackMetadata) -> Activity<'a> {
-    let Some(url) = valid_https_url(track.url.as_deref()) else {
+    let Some(url) = valid_track_url(track.url.as_deref()) else {
         return activity;
     };
 
     activity.buttons(vec![Button::new("Listen on YouTube Music", url)])
-}
-
-fn valid_https_url(value: Option<&str>) -> Option<&str> {
-    let value = value?.trim();
-    if value.starts_with("https://") && value.len() <= 512 {
-        Some(value)
-    } else {
-        None
-    }
 }
 
 fn clean_presence_part(value: Option<&str>) -> Option<&str> {
