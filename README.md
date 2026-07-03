@@ -32,19 +32,20 @@ An MSI package is also available on the [release page](https://github.com/justhe
 
 ## Requirements
 
-For installed releases:
-
 - Windows 10 or newer.
 - Microsoft Edge WebView2 Runtime.
 - Discord desktop client for Rich Presence.
 
-For local builds:
+<details>
+<summary>Developer notes</summary>
+
+### Local Build Requirements
 
 - Node.js and npm.
 - Rust toolchain with Cargo.
 - Windows WebView2 Runtime.
 
-## Build From Source
+### Build From Source
 
 ```powershell
 npm install
@@ -59,7 +60,7 @@ src-tauri\target\release\bundle\
 
 If `cargo` is not recognized, install Rust from [rust-lang.org/tools/install](https://www.rust-lang.org/tools/install), restart PowerShell, then rerun the build.
 
-## Discord Rich Presence
+### Discord Rich Presence
 
 Discord Rich Presence is configured from the bundled `src-tauri/discord-client-id.txt`.
 
@@ -70,7 +71,7 @@ $env:YT_MUSIC_DISCORD_CLIENT_ID = "your_discord_application_id"
 npm run dev
 ```
 
-## Ad Block Self-Test
+### Ad Block Self-Test
 
 The app has a hidden self-test mode for the native request blocker:
 
@@ -81,14 +82,14 @@ Start-Process "$env:LOCALAPPDATA\YouTube Music\yt-music-tauri.exe"
 
 When the blocker is wired correctly, the window title briefly becomes `ADBLOCK_SELF_TEST:PASS`.
 
-## Security Notes
+### Security Notes
 
 - The remote YouTube Music page receives no Tauri permissions.
 - Rich Presence metadata is sent through a document-title bridge instead of exposing app IPC to the remote page.
 - Navigation is restricted to YouTube Music and expected Google/YouTube sign-in hosts.
 - Rich Presence buttons and artwork are limited to trusted YouTube, `ytimg.com`, and Googleusercontent hosts.
 
-## Contributor Guide
+### Contributor Guide
 
 - `src-tauri/src/lib.rs` builds the Tauri window and gates navigation/title messages.
 - `src-tauri/src/url_policy.rs` owns URL allow-lists for navigation and Discord Rich Presence.
@@ -98,6 +99,8 @@ When the blocker is wired correctly, the window title briefly becomes `ADBLOCK_S
 - `src-tauri/src/adblock_probe.js` handles page-side ad skip and cleanup behavior.
 
 Add or update unit tests when changing URL policy, ad URL rules, or security-sensitive bridge behavior.
+
+</details>
 
 ## License
 
