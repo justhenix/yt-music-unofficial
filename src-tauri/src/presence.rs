@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::{
     fs,
     path::PathBuf,
-    sync::mpsc::{self, SyncSender},
+    sync::mpsc::{self, Sender},
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -21,7 +21,7 @@ const BUNDLED_CLIENT_ID: &str = include_str!("../discord-client-id.txt");
 
 #[derive(Clone)]
 pub struct PresenceController {
-    tx: SyncSender<TrackMetadata>,
+    tx: Sender<PresenceMessage>,
 }
 
 #[derive(Default)]
@@ -33,7 +33,7 @@ struct PresenceState {
 
 impl PresenceController {
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::sync_channel::<TrackMetadata>(1);
+        let (tx, rx) = mpsc::channel::<PresenceMessage>();
 
         thread::spawn(move || {
             let mut state = PresenceState {
@@ -42,8 +42,8 @@ impl PresenceController {
                 last_track: None,
             };
 
-            for track in rx {
-                update_presence_state(&mut state, track);
+            for message in rx {
+                update_presence_state(&mut state, message);
             }
         });
 
@@ -55,11 +55,22 @@ impl PresenceController {
             return;
         }
 
-        let _ = self.tx.try_send(track);
+        let _ = self.tx.send(PresenceMessage::Track(track));
+    }
+
+    pub fn clear(&self) {
+        let _ = self.tx.send(PresenceMessage::Clear);
     }
 }
 
-fn update_presence_state(state: &mut PresenceState, track: TrackMetadata) {
+fn update_presence_state(state: &mut PresenceState, message: PresenceMessage) {
+    match message {
+        PresenceMessage::Track(track) => update_track_presence_state(state, track),
+        PresenceMessage::Clear => clear_presence_state(state),
+    }
+}
+
+fn update_track_presence_state(state: &mut PresenceState, track: TrackMetadata) {
     if state.last_track.as_ref() == Some(&track) {
         return;
     }
@@ -72,7 +83,6 @@ fn update_presence_state(state: &mut PresenceState, track: TrackMetadata) {
     if state.client.is_none() {
         let mut client = DiscordIpcClient::new(client_id);
         if client.connect().is_err() {
-            state.last_track = Some(track);
             return;
         }
         state.client = Some(client);
@@ -101,8 +111,43 @@ fn update_presence_state(state: &mut PresenceState, track: TrackMetadata) {
 
     if matches!(result, Some(Err(_))) {
         state.client = None;
+        state.last_track = None;
     } else {
         state.last_track = Some(track);
+    }
+}
+
+fn clear_presence_state(state: &mut PresenceState) {
+    if state.last_track.take().is_none() {
+        return;
+    }
+
+    if let Some(client) = state.client.as_mut() {
+        if client.clear_activity().is_err() {
+            state.client = None;
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PresenceMessage {
+    Track(TrackMetadata),
+    Clear,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum TypedPresenceMessage {
+    Track { track: TrackMetadata },
+    Clear,
+}
+
+impl From<TypedPresenceMessage> for PresenceMessage {
+    fn from(message: TypedPresenceMessage) -> Self {
+        match message {
+            TypedPresenceMessage::Track { track } => PresenceMessage::Track(track),
+            TypedPresenceMessage::Clear => PresenceMessage::Clear,
+        }
     }
 }
 
@@ -145,14 +190,18 @@ impl TrackMetadata {
     }
 }
 
-pub fn parse_track_title(title: &str) -> Option<TrackMetadata> {
+pub fn parse_presence_title(title: &str) -> Option<PresenceMessage> {
     // Only consume titles emitted by track_probe.js; normal YouTube titles still
     // pass through to the window unchanged.
     let payload = title.strip_prefix(TITLE_PREFIX)?;
-    serde_json::from_str::<TrackMetadata>(payload).ok()
+
+    serde_json::from_str::<TypedPresenceMessage>(payload)
+        .map(PresenceMessage::from)
+        .or_else(|_| serde_json::from_str::<TrackMetadata>(payload).map(PresenceMessage::Track))
+        .ok()
 }
 
-pub fn is_track_title_message(title: &str) -> bool {
+pub fn is_presence_title_message(title: &str) -> bool {
     title.starts_with(TITLE_PREFIX)
 }
 
@@ -312,7 +361,10 @@ mod tests {
     #[test]
     fn parses_probe_title() {
         let title = r#"YTMRPC:{"title":"Song","artist":"Artist","album":"Album","playing":true,"url":"https://music.youtube.com/watch?v=x","cover_url":"https://lh3.googleusercontent.com/image","elapsed_seconds":17,"duration_seconds":134}"#;
-        let parsed = parse_track_title(title).expect("track metadata");
+        let parsed = parse_presence_title(title).expect("presence message");
+        let PresenceMessage::Track(parsed) = parsed else {
+            panic!("expected track message");
+        };
 
         assert_eq!(parsed.title, "Song");
         assert_eq!(parsed.artist.as_deref(), Some("Artist"));
@@ -322,8 +374,30 @@ mod tests {
     }
 
     #[test]
+    fn parses_typed_probe_title() {
+        let title = r#"YTMRPC:{"type":"track","track":{"title":"Song","artist":"Artist","album":"Album","playing":true,"url":"https://music.youtube.com/watch?v=x","cover_url":"https://lh3.googleusercontent.com/image","elapsed_seconds":17,"duration_seconds":134}}"#;
+        let parsed = parse_presence_title(title).expect("presence message");
+
+        match parsed {
+            PresenceMessage::Track(track) => {
+                assert_eq!(track.title, "Song");
+                assert_eq!(track.artist.as_deref(), Some("Artist"));
+                assert!(track.playing);
+            }
+            PresenceMessage::Clear => panic!("expected track message"),
+        }
+    }
+
+    #[test]
+    fn parses_clear_probe_title() {
+        let parsed = parse_presence_title(r#"YTMRPC:{"type":"clear"}"#).expect("clear message");
+
+        assert_eq!(parsed, PresenceMessage::Clear);
+    }
+
+    #[test]
     fn ignores_normal_titles() {
-        assert!(parse_track_title("YouTube Music").is_none());
+        assert!(parse_presence_title("YouTube Music").is_none());
     }
 
     #[test]

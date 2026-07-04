@@ -26,7 +26,7 @@ An MSI package is also available on the [release page](https://github.com/justhe
 ## Features
 
 - Dedicated Windows app window for YouTube Music.
-- Discord Rich Presence for the currently playing track.
+- Discord Rich Presence for the current track, with stale activity clearing.
 - Persistent YouTube login/session through the app WebView profile.
 - Built-in ad blocking with native request filtering and page-side ad cleanup.
 

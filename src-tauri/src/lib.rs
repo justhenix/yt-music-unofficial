@@ -5,9 +5,9 @@ mod adblock;
 mod presence;
 mod url_policy;
 
-use presence::PresenceController;
+use presence::{PresenceController, PresenceMessage};
 use tauri::webview::WebviewWindowBuilder;
-use tauri::{Manager, Url, WebviewUrl};
+use tauri::{Manager, Url, WebviewUrl, WindowEvent};
 use url_policy::{is_allowed_navigation_url, is_youtube_music_url};
 
 const YOUTUBE_MUSIC_URL: &str = "https://music.youtube.com";
@@ -35,6 +35,8 @@ const AD_BLOCK_SELF_TEST_SCRIPT: &str = r#"
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let presence = PresenceController::new();
+    let presence_for_events = presence.clone();
+    let presence_for_navigation = presence.clone();
     let presence_for_window = presence.clone();
 
     let mut builder = tauri::Builder::default();
@@ -51,6 +53,14 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .on_window_event(move |_window, event| {
+            if matches!(
+                event,
+                WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
+            ) {
+                presence_for_events.clear();
+            }
+        })
         .setup(move |app| {
             let music_url = YOUTUBE_MUSIC_URL
                 .parse()
@@ -65,16 +75,33 @@ pub fn run() {
                 .min_inner_size(900.0, 620.0)
                 .center()
                 .initialization_script(&initialization_script())
-                .on_navigation(is_allowed_navigation_url)
+                .on_navigation(move |url| {
+                    let allowed = is_allowed_navigation_url(url);
+
+                    if allowed && !is_youtube_music_url(url) {
+                        presence_for_navigation.clear();
+                    }
+
+                    allowed
+                })
                 .on_document_title_changed(move |window, title| {
                     // track_probe.js sends JSON through document.title so the remote
                     // YouTube page never gets direct access to Tauri commands.
-                    if presence::is_track_title_message(&title) {
-                        if should_accept_track_title(window.url().ok().as_ref(), &title) {
-                            if let Some(track) = presence::parse_track_title(&title) {
-                                let window_title = track.window_title();
-                                let _ = window.set_title(&window_title);
-                                presence_for_window.update(track);
+                    if presence::is_presence_title_message(&title) {
+                        if let Some(message) = presence::parse_presence_title(&title) {
+                            if should_accept_presence_message(window.url().ok().as_ref(), &message)
+                            {
+                                match message {
+                                    PresenceMessage::Track(track) => {
+                                        let window_title = track.window_title();
+                                        let _ = window.set_title(&window_title);
+                                        presence_for_window.update(track);
+                                    }
+                                    PresenceMessage::Clear => {
+                                        let _ = window.set_title("YouTube Music");
+                                        presence_for_window.clear();
+                                    }
+                                }
                             }
                         }
                         return;
@@ -103,8 +130,11 @@ fn initialization_script() -> String {
     }
 }
 
-fn should_accept_track_title(current_url: Option<&Url>, title: &str) -> bool {
-    presence::is_track_title_message(title) && current_url.is_some_and(is_youtube_music_url)
+fn should_accept_presence_message(current_url: Option<&Url>, message: &PresenceMessage) -> bool {
+    match message {
+        PresenceMessage::Track(_) => current_url.is_some_and(is_youtube_music_url),
+        PresenceMessage::Clear => current_url.is_some_and(is_allowed_navigation_url),
+    }
 }
 
 #[cfg(test)]
@@ -118,21 +148,37 @@ mod tests {
     #[test]
     fn accepts_track_titles_only_from_youtube_music() {
         let title = r#"YTMRPC:{"title":"Song","artist":null,"album":null,"playing":true,"url":null,"cover_url":null,"elapsed_seconds":null,"duration_seconds":null}"#;
+        let message = presence::parse_presence_title(title).expect("presence message");
         let music_url = parse_url("https://music.youtube.com/watch?v=x");
         let account_url = parse_url("https://accounts.google.com/signin");
 
-        assert!(should_accept_track_title(Some(&music_url), title));
-        assert!(!should_accept_track_title(Some(&account_url), title));
-        assert!(!should_accept_track_title(None, title));
+        assert!(should_accept_presence_message(Some(&music_url), &message));
+        assert!(!should_accept_presence_message(
+            Some(&account_url),
+            &message
+        ));
+        assert!(!should_accept_presence_message(None, &message));
+    }
+
+    #[test]
+    fn accepts_clear_titles_from_allowed_pages() {
+        let message =
+            presence::parse_presence_title(r#"YTMRPC:{"type":"clear"}"#).expect("clear message");
+        let music_url = parse_url("https://music.youtube.com/watch?v=x");
+        let account_url = parse_url("https://accounts.google.com/signin");
+        let external_url = parse_url("https://example.com/");
+
+        assert!(should_accept_presence_message(Some(&music_url), &message));
+        assert!(should_accept_presence_message(Some(&account_url), &message));
+        assert!(!should_accept_presence_message(
+            Some(&external_url),
+            &message
+        ));
+        assert!(!should_accept_presence_message(None, &message));
     }
 
     #[test]
     fn ignores_non_track_titles_for_track_bridge() {
-        let music_url = parse_url("https://music.youtube.com/");
-
-        assert!(!should_accept_track_title(
-            Some(&music_url),
-            "YouTube Music"
-        ));
+        assert!(presence::parse_presence_title("YouTube Music").is_none());
     }
 }

@@ -6,6 +6,7 @@
   window.__ytMusicTauriProbeInstalled = true;
 
   const PREFIX = "YTMRPC:";
+  const CLEAR_PAYLOAD = PREFIX + JSON.stringify({ type: "clear" });
   // Progress changes every second; Discord only needs occasional timestamp refreshes.
   // Keep play/pause and track changes out of this throttle by excluding elapsed time from presenceKey().
   const PROGRESS_REFRESH_MS = 30000;
@@ -275,17 +276,30 @@
       duration_seconds: track.duration_seconds,
     });
 
+  const publishClear = () => {
+    if (lastPayload === CLEAR_PAYLOAD) {
+      return;
+    }
+
+    lastPayload = CLEAR_PAYLOAD;
+    lastPresenceKey = "";
+    lastProgressPublish = 0;
+    document.title = CLEAR_PAYLOAD;
+  };
+
   const publish = () => {
     if (!isMusicHost() || !document.body) {
+      publishClear();
       return;
     }
 
     const track = readTrack();
     if (!track) {
+      publishClear();
       return;
     }
 
-    const payload = PREFIX + JSON.stringify(track);
+    const payload = PREFIX + JSON.stringify({ type: "track", track });
     const key = presenceKey(track);
     const now = Date.now();
 
