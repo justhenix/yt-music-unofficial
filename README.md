@@ -19,7 +19,7 @@ This app gives YouTube Music its own dedicated Windows window, keeps your normal
 
 Use the NSIS setup installer for normal installs:
 
-[Download `YouTube Music_0.1.4_x64-setup.exe`](https://github.com/justhenix/yt-music-unofficial/releases/download/v0.1.4/YouTube%20Music_0.1.4_x64-setup.exe)
+[Download `YouTube.Music_0.1.4_x64-setup.exe`](https://github.com/justhenix/yt-music-unofficial/releases/download/v0.1.4/YouTube.Music_0.1.4_x64-setup.exe)
 
 An MSI package is also available on the [release page](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.4).
 
