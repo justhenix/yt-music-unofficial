@@ -7,23 +7,30 @@ by YouTube, Google, Discord, Microsoft, or Tauri.
 
 ## Direct Runtime Dependencies
 
-| Component | License | Purpose |
-| --- | --- | --- |
-| Tauri | Apache-2.0 OR MIT | Desktop app framework |
-| Tauri single-instance plugin | Apache-2.0 OR MIT | Reuses the existing app window |
-| Tauri window-state plugin | Apache-2.0 OR MIT | Persists window size and position |
-| discord-rich-presence | MIT | Discord Rich Presence IPC |
-| serde | MIT OR Apache-2.0 | Data serialization |
-| serde_json | MIT OR Apache-2.0 | JSON parsing |
-| webview2-com | MIT | Windows WebView2 COM bindings |
-| windows | MIT OR Apache-2.0 | Windows API bindings |
+SPDX `OR` expressions offer a license choice. This distribution uses the MIT
+option for every direct dependency offered under `MIT OR Apache-2.0`.
+
+| Component | Version | Distribution license | Purpose |
+| --- | --- | --- | --- |
+| Tauri | 2.11.5 | MIT (selected) | Desktop app framework |
+| Tauri global-shortcut plugin | 2.3.2 | MIT (selected) | Global playback shortcuts |
+| Tauri single-instance plugin | 2.4.2 | MIT (selected) | Reuses the existing app window |
+| Tauri window-state plugin | 2.4.1 | MIT (selected) | Persists window size and position |
+| discord-rich-presence | 1.1.0 | MIT | Discord Rich Presence IPC |
+| reqwest | 0.13.4 | MIT (selected) | GitHub release checks |
+| semver | 1.0.28 | MIT (selected) | Release version comparison |
+| serde | 1.0.228 | MIT (selected) | Data serialization |
+| serde_json | 1.0.150 | MIT (selected) | JSON parsing |
+| webview2-com | 0.38.2 | MIT | Windows WebView2 COM bindings |
+| windows | 0.61.3 | MIT (selected) | Windows API bindings |
+| winreg | 0.55.0 | MIT | Windows startup registration |
 
 ## Build Tooling
 
-| Component | License | Purpose |
-| --- | --- | --- |
-| @tauri-apps/cli | Apache-2.0 OR MIT | Tauri build and bundle CLI |
-| tauri-build | Apache-2.0 OR MIT | Tauri build script support |
+| Component | Version | Distribution license | Purpose |
+| --- | --- | --- | --- |
+| @tauri-apps/cli | 2.11.4 | MIT (selected) | Tauri build and bundle CLI |
+| tauri-build | 2.6.3 | MIT (selected) | Tauri build script support |
 
 ## Platform Components
 

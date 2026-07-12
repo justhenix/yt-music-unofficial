@@ -13,28 +13,48 @@ This app gives YouTube Music its own dedicated Windows window, keeps your normal
 
 - Windows only.
 - Unofficial project, not affiliated with YouTube, Google, Discord, Microsoft, or Tauri.
-- Current release: [`v0.1.4`](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.4).
+- Current release: [`v0.1.5`](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.5).
 
 ## Download
 
 Use the NSIS setup installer for normal installs:
 
-[Download `YouTube.Music_0.1.4_x64-setup.exe`](https://github.com/justhenix/yt-music-unofficial/releases/download/v0.1.4/YouTube.Music_0.1.4_x64-setup.exe)
+[Download `YouTube.Music_0.1.5_x64-setup.exe`](https://github.com/justhenix/yt-music-unofficial/releases/download/v0.1.5/YouTube.Music_0.1.5_x64-setup.exe)
 
-An MSI package is also available on the [release page](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.4).
+An MSI package is also available on the [release page](https://github.com/justhenix/yt-music-unofficial/releases/tag/v0.1.5).
 
 ## Features
 
 - Dedicated Windows app window for YouTube Music.
-- Discord Rich Presence for the current track, with stale activity clearing.
+- Persistent Discord RPC and ad-block toggles with live status.
 - Persistent YouTube login/session through the app WebView profile.
-- Built-in ad blocking with native request filtering and page-side ad cleanup.
+- Built-in ad blocking with native request filtering, blocked-request count, and page-side cleanup.
+- System tray controls for show/hide, previous, play/pause, next, Discord RPC, and quit.
+- Reload, zoom, cache clear, and session reset controls.
+- Optional close-to-tray, launch at startup, and start minimized behavior.
+- External links open in the default browser.
+- Automatic and manual GitHub release checks.
+- Left-hand global playback shortcuts.
+
+YouTube Music's WebView profile retains login, volume, window state, and site preferences.
+
+## Shortcuts
+
+- `Ctrl+Alt+A`: previous track.
+- `Ctrl+Alt+S`: play or pause.
+- `Ctrl+Alt+D`: next track.
+- `Ctrl+R`: reload.
+- `Ctrl++`, `Ctrl+-`, `Ctrl+0`: zoom.
+- `Ctrl+Shift+Delete`: reset the YouTube Music session.
 
 ## Requirements
 
 - Windows 10 or newer.
 - Microsoft Edge WebView2 Runtime.
 - Discord desktop client for Rich Presence.
+
+Windows may label WebView2 playback as `Unknown app` in system media controls.
+This is an upstream WebView2/Tauri limitation; track metadata and media buttons still work.
 
 <details>
 <summary>Developer notes</summary>
@@ -87,11 +107,14 @@ When the blocker is wired correctly, the window title briefly becomes `ADBLOCK_S
 - The remote YouTube Music page receives no Tauri permissions.
 - Rich Presence metadata is sent through a document-title bridge instead of exposing app IPC to the remote page.
 - Navigation is restricted to YouTube Music and expected Google/YouTube sign-in hosts.
+- External HTTPS links leave the app and open in the default browser.
 - Rich Presence buttons and artwork are limited to trusted YouTube, `ytimg.com`, and Googleusercontent hosts.
 
 ### Contributor Guide
 
 - `src-tauri/src/lib.rs` builds the Tauri window and gates navigation/title messages.
+- `src-tauri/src/controls.rs` owns menus, tray actions, shortcuts, and recovery actions.
+- `src-tauri/src/settings.rs` persists native app preferences.
 - `src-tauri/src/url_policy.rs` owns URL allow-lists for navigation and Discord Rich Presence.
 - `src-tauri/src/presence.rs` formats Discord Rich Presence data.
 - `src-tauri/src/track_probe.js` reads YouTube Music track state from the page.

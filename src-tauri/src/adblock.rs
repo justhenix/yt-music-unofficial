@@ -1,57 +1,132 @@
 #[cfg(windows)]
 use webview2_com::{
+    ClearBrowsingDataCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2Environment, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+        ICoreWebView2Environment, ICoreWebView2Profile2, ICoreWebView2_13,
+        COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE,
+        COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
     },
     WebResourceRequestedEventHandler,
 };
 
 #[cfg(windows)]
-use windows::core::{HSTRING, PWSTR};
+use windows::core::{Interface, HSTRING, PWSTR};
+
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
 
 #[cfg(windows)]
 const FILTER: &str = "*";
 
+#[derive(Clone)]
+pub struct AdBlockController {
+    enabled: Arc<AtomicBool>,
+    blocked_requests: Arc<AtomicU64>,
+}
+
+impl AdBlockController {
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            enabled: Arc::new(AtomicBool::new(enabled)),
+            blocked_requests: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn blocked_requests(&self) -> u64 {
+        self.blocked_requests.load(Ordering::Relaxed)
+    }
+
+    #[cfg(windows)]
+    pub fn install(&self, webview: tauri::webview::PlatformWebview) {
+        unsafe {
+            let controller = webview.controller();
+            let Ok(core_webview) = controller.CoreWebView2() else {
+                return;
+            };
+            let environment = webview.environment();
+            let enabled = self.enabled.clone();
+            let blocked_requests = self.blocked_requests.clone();
+
+            // WebView2 filters are cheap here because should_block_url() keeps the
+            // matching rules small and conservative. Add tests for every new pattern.
+            let filter = HSTRING::from(FILTER);
+            let _ = core_webview
+                .AddWebResourceRequestedFilter(&filter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+
+            let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else {
+                    return Ok(());
+                };
+
+                let request = args.Request()?;
+                let mut uri = PWSTR::null();
+                request.Uri(&mut uri)?;
+                let url = take_pwstr(uri);
+
+                if enabled.load(Ordering::Relaxed) && should_block_url(&url) {
+                    let response = blocked_response(&environment)?;
+                    args.SetResponse(&response)?;
+                    blocked_requests.fetch_add(1, Ordering::Relaxed);
+                }
+
+                Ok(())
+            }));
+
+            let mut token = 0;
+            let _ = core_webview.add_WebResourceRequested(&handler, &mut token);
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn install(&self, _webview: tauri::webview::PlatformWebview) {}
+}
+
 #[cfg(windows)]
-pub fn install(webview: tauri::webview::PlatformWebview) {
+pub fn clear_cache(
+    webview: tauri::webview::PlatformWebview,
+    on_complete: impl FnOnce() + Send + 'static,
+) {
     unsafe {
-        let controller = webview.controller();
-        let Ok(core_webview) = controller.CoreWebView2() else {
+        let Ok(core_webview) = webview.controller().CoreWebView2() else {
+            on_complete();
             return;
         };
-        let environment = webview.environment();
-
-        // WebView2 filters are cheap here because should_block_url() keeps the
-        // matching rules small and conservative. Add tests for every new pattern.
-        let filter = HSTRING::from(FILTER);
-        let _ = core_webview
-            .AddWebResourceRequestedFilter(&filter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-
-        let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
-            let Some(args) = args else {
-                return Ok(());
-            };
-
-            let request = args.Request()?;
-            let mut uri = PWSTR::null();
-            request.Uri(&mut uri)?;
-            let url = take_pwstr(uri);
-
-            if should_block_url(&url) {
-                let response = blocked_response(&environment)?;
-                args.SetResponse(&response)?;
-            }
-
-            Ok(())
-        }));
-
-        let mut token = 0;
-        let _ = core_webview.add_WebResourceRequested(&handler, &mut token);
+        let Ok(profile) = core_webview
+            .cast::<ICoreWebView2_13>()
+            .and_then(|webview| webview.Profile())
+            .and_then(|profile| profile.cast::<ICoreWebView2Profile2>())
+        else {
+            on_complete();
+            return;
+        };
+        let kinds = COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE
+            | COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE;
+        let mut on_complete = Some(on_complete);
+        let _ = profile.ClearBrowsingData(
+            kinds,
+            &ClearBrowsingDataCompletedHandler::create(Box::new(move |_| {
+                if let Some(on_complete) = on_complete.take() {
+                    on_complete();
+                }
+                Ok(())
+            })),
+        );
     }
 }
 
 #[cfg(not(windows))]
-pub fn install(_webview: tauri::webview::PlatformWebview) {}
+pub fn clear_cache(
+    _webview: tauri::webview::PlatformWebview,
+    on_complete: impl FnOnce() + Send + 'static,
+) {
+    on_complete();
+}
 
 #[cfg(windows)]
 unsafe fn blocked_response(
@@ -106,7 +181,7 @@ pub fn should_block_url(url: &str) -> bool {
 
 fn host_from_url(url: &str) -> Option<&str> {
     let (_, rest) = url.split_once("://")?;
-    let host = rest.split(['/', '?', '#']).next()?.split('@').last()?;
+    let host = rest.split(['/', '?', '#']).next()?.rsplit('@').next()?;
     let host = host.split(':').next().unwrap_or(host);
     (!host.is_empty()).then_some(host)
 }

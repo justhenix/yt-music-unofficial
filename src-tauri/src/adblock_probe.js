@@ -102,7 +102,15 @@
   };
 
   const run = () => {
-    if (location.hostname !== "music.youtube.com") {
+    if (
+      location.hostname !== "music.youtube.com" ||
+      window.__ytMusicTauriAdBlockEnabled === false
+    ) {
+      for (const media of document.querySelectorAll("video, audio")) {
+        if (media.playbackRate > 2) {
+          media.playbackRate = 1;
+        }
+      }
       return;
     }
 

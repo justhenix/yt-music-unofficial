@@ -1,12 +1,21 @@
-//! lib.rs
 //! Builds the Tauri window, injects page probes, and gates navigation/title messages.
 
 mod adblock;
+mod controls;
+mod platform;
 mod presence;
+mod settings;
+mod updates;
 mod url_policy;
 
+use adblock::AdBlockController;
+use controls::AppState;
 use presence::{PresenceController, PresenceMessage};
-use tauri::webview::WebviewWindowBuilder;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
 use tauri::{Manager, Url, WebviewUrl, WindowEvent};
 use url_policy::{is_allowed_navigation_url, is_youtube_music_url};
 
@@ -34,32 +43,53 @@ const AD_BLOCK_SELF_TEST_SCRIPT: &str = r#"
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let presence = PresenceController::new();
-    let presence_for_events = presence.clone();
+    let settings = settings::load();
+    settings::update(&settings, |value| {
+        value.launch_at_startup = platform::startup_enabled()
+    });
+    let initial = settings::snapshot(&settings);
+    let presence = PresenceController::new(initial.discord_rpc);
+    let adblock = AdBlockController::new(initial.ad_block);
     let presence_for_navigation = presence.clone();
     let presence_for_window = presence.clone();
+    let adblock_for_webview = adblock.clone();
+    let state = AppState {
+        settings,
+        presence,
+        adblock,
+        quitting: Arc::new(AtomicBool::new(false)),
+    };
+    let state_for_events = state.clone();
+    let start_minimized = std::env::args().any(|argument| argument == "--minimized");
 
     let mut builder = tauri::Builder::default();
 
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        }));
+        builder = builder
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                controls::show_main_window(app);
+            }));
     }
 
     builder
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .on_window_event(move |_window, event| {
-            if matches!(
-                event,
-                WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
-            ) {
-                presence_for_events.clear();
+        .on_window_event(move |window, event| match event {
+            WindowEvent::Focused(focused) if window.label() == "main" => {
+                controls::set_local_shortcuts(window.app_handle(), *focused, &state_for_events);
             }
+            WindowEvent::CloseRequested { api, .. }
+                if settings::snapshot(&state_for_events.settings).close_to_tray
+                    && !state_for_events.quitting.load(Ordering::Relaxed) =>
+            {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed => {
+                state_for_events.presence.clear();
+            }
+            _ => {}
         })
         .setup(move |app| {
             let music_url = YOUTUBE_MUSIC_URL
@@ -74,15 +104,27 @@ pub fn run() {
                 .inner_size(1280.0, 840.0)
                 .min_inner_size(900.0, 620.0)
                 .center()
-                .initialization_script(&initialization_script())
+                .zoom_hotkeys_enabled(false)
+                .initialization_script(initialization_script(initial.ad_block))
                 .on_navigation(move |url| {
                     let allowed = is_allowed_navigation_url(url);
 
-                    if allowed && !is_youtube_music_url(url) {
+                    if !is_youtube_music_url(url) {
                         presence_for_navigation.clear();
+                    }
+                    if !allowed && url.scheme() == "https" {
+                        platform::open_url(url.as_str());
                     }
 
                     allowed
+                })
+                .on_new_window(move |url, _features| {
+                    if is_allowed_navigation_url(&url) {
+                        NewWindowResponse::Allow
+                    } else {
+                        platform::open_url(url.as_str());
+                        NewWindowResponse::Deny
+                    }
                 })
                 .on_document_title_changed(move |window, title| {
                     // track_probe.js sends JSON through document.title so the remote
@@ -112,21 +154,28 @@ pub fn run() {
                     }
                 })
                 .build()?;
-            let _ = window.with_webview(adblock::install);
+            controls::install(app, state)?;
+            let _ = window.set_zoom(initial.zoom.clamp(0.5, 2.0));
+            let _ = window.with_webview(move |webview| adblock_for_webview.install(webview));
             window.navigate(music_url)?;
+            if start_minimized {
+                let _ = window.hide();
+            }
+            updates::check_in_background(true);
 
             Ok(())
         })
-        .manage(presence)
         .run(tauri::generate_context!())
         .expect("error while running YouTube Music");
 }
 
-fn initialization_script() -> String {
+fn initialization_script(ad_block_enabled: bool) -> String {
+    let enabled = format!("window.__ytMusicTauriAdBlockEnabled = {ad_block_enabled};");
+
     if std::env::var_os("YT_MUSIC_ADBLOCK_SELF_TEST").is_some() {
-        format!("{AD_BLOCK_SCRIPT}\n{AD_BLOCK_SELF_TEST_SCRIPT}\n{TRACK_PROBE_SCRIPT}")
+        format!("{enabled}\n{AD_BLOCK_SCRIPT}\n{AD_BLOCK_SELF_TEST_SCRIPT}\n{TRACK_PROBE_SCRIPT}")
     } else {
-        format!("{AD_BLOCK_SCRIPT}\n{TRACK_PROBE_SCRIPT}")
+        format!("{enabled}\n{AD_BLOCK_SCRIPT}\n{TRACK_PROBE_SCRIPT}")
     }
 }
 

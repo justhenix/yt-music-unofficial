@@ -10,7 +10,10 @@ use serde::Deserialize;
 use std::{
     fs,
     path::PathBuf,
-    sync::mpsc::{self, Sender},
+    sync::{
+        mpsc::{self, Sender},
+        Arc, Mutex,
+    },
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -21,33 +24,58 @@ const BUNDLED_CLIENT_ID: &str = include_str!("../discord-client-id.txt");
 
 #[derive(Clone)]
 pub struct PresenceController {
-    tx: Sender<PresenceMessage>,
+    tx: Sender<PresenceCommand>,
+    status: Arc<Mutex<PresenceStatus>>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
+struct PresenceStatus {
+    enabled: bool,
+    client_configured: bool,
+    connected: bool,
+    activity_active: bool,
+}
+
 struct PresenceState {
+    enabled: bool,
     client_id: Option<String>,
     client: Option<DiscordIpcClient>,
-    last_track: Option<TrackMetadata>,
+    current_track: Option<TrackMetadata>,
+    published_track: Option<TrackMetadata>,
+}
+
+enum PresenceCommand {
+    Message(PresenceMessage),
+    SetEnabled(bool),
 }
 
 impl PresenceController {
-    pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel::<PresenceMessage>();
+    pub fn new(enabled: bool) -> Self {
+        let (tx, rx) = mpsc::channel::<PresenceCommand>();
+        let status = Arc::new(Mutex::new(PresenceStatus {
+            enabled,
+            ..PresenceStatus::default()
+        }));
+        let status_for_worker = status.clone();
 
         thread::spawn(move || {
+            let client_id = read_client_id();
             let mut state = PresenceState {
-                client_id: read_client_id(),
+                enabled,
+                client_id,
                 client: None,
-                last_track: None,
+                current_track: None,
+                published_track: None,
             };
+            sync_status(&state, &status_for_worker);
 
-            for message in rx {
-                update_presence_state(&mut state, message);
+            for command in rx {
+                update_presence_state(&mut state, command);
+                sync_status(&state, &status_for_worker);
             }
         });
 
-        Self { tx }
+        Self { tx, status }
     }
 
     pub fn update(&self, track: TrackMetadata) {
@@ -55,28 +83,85 @@ impl PresenceController {
             return;
         }
 
-        let _ = self.tx.send(PresenceMessage::Track(track));
+        let _ = self
+            .tx
+            .send(PresenceCommand::Message(PresenceMessage::Track(track)));
     }
 
     pub fn clear(&self) {
-        let _ = self.tx.send(PresenceMessage::Clear);
+        let _ = self
+            .tx
+            .send(PresenceCommand::Message(PresenceMessage::Clear));
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        let _ = self.tx.send(PresenceCommand::SetEnabled(enabled));
+    }
+
+    pub fn status(&self) -> String {
+        let Ok(status) = self.status.lock() else {
+            return "Status unavailable".to_string();
+        };
+
+        if !status.enabled {
+            "Disabled".to_string()
+        } else if !status.client_configured {
+            "Unavailable: Discord application ID is missing".to_string()
+        } else if !status.connected {
+            "Enabled: waiting for Discord".to_string()
+        } else if status.activity_active {
+            "Connected: activity published".to_string()
+        } else {
+            "Connected: idle".to_string()
+        }
     }
 }
 
-fn update_presence_state(state: &mut PresenceState, message: PresenceMessage) {
-    match message {
-        PresenceMessage::Track(track) => update_track_presence_state(state, track),
-        PresenceMessage::Clear => clear_presence_state(state),
+fn sync_status(state: &PresenceState, status: &Arc<Mutex<PresenceStatus>>) {
+    if let Ok(mut status) = status.lock() {
+        status.enabled = state.enabled;
+        status.client_configured = state.client_id.is_some();
+        status.connected = state.client.is_some();
+        status.activity_active = state.published_track.is_some();
+    }
+}
+
+fn update_presence_state(state: &mut PresenceState, command: PresenceCommand) {
+    match command {
+        PresenceCommand::Message(PresenceMessage::Track(track)) => {
+            state.current_track = Some(track.clone());
+            if state.enabled {
+                update_track_presence_state(state, track);
+            }
+        }
+        PresenceCommand::Message(PresenceMessage::Clear) => {
+            state.current_track = None;
+            clear_presence_state(state);
+        }
+        PresenceCommand::SetEnabled(enabled) => {
+            if state.enabled == enabled {
+                return;
+            }
+
+            state.enabled = enabled;
+            if enabled {
+                if let Some(track) = state.current_track.clone() {
+                    update_track_presence_state(state, track);
+                }
+            } else {
+                clear_presence_state(state);
+            }
+        }
     }
 }
 
 fn update_track_presence_state(state: &mut PresenceState, track: TrackMetadata) {
-    if state.last_track.as_ref() == Some(&track) {
+    if state.published_track.as_ref() == Some(&track) {
         return;
     }
 
     let Some(client_id) = state.client_id.clone() else {
-        state.last_track = Some(track);
+        state.published_track = Some(track);
         return;
     };
 
@@ -111,14 +196,14 @@ fn update_track_presence_state(state: &mut PresenceState, track: TrackMetadata) 
 
     if matches!(result, Some(Err(_))) {
         state.client = None;
-        state.last_track = None;
+        state.published_track = None;
     } else {
-        state.last_track = Some(track);
+        state.published_track = Some(track);
     }
 }
 
 fn clear_presence_state(state: &mut PresenceState) {
-    if state.last_track.take().is_none() {
+    if state.published_track.take().is_none() {
         return;
     }
 
@@ -447,5 +532,46 @@ mod tests {
         };
 
         assert_eq!(track.presence_state(), None);
+    }
+
+    #[test]
+    fn disabled_presence_caches_track_and_restores_it_when_enabled() {
+        let mut state = PresenceState {
+            enabled: true,
+            client_id: None,
+            client: None,
+            current_track: None,
+            published_track: None,
+        };
+        let track = TrackMetadata {
+            title: "Song".to_string(),
+            artist: Some("Artist".to_string()),
+            album: Some("Album".to_string()),
+            playing: true,
+            url: None,
+            cover_url: None,
+            elapsed_seconds: None,
+            duration_seconds: None,
+        };
+
+        update_presence_state(&mut state, PresenceCommand::SetEnabled(false));
+        update_presence_state(
+            &mut state,
+            PresenceCommand::Message(PresenceMessage::Track(track.clone())),
+        );
+
+        assert_eq!(state.current_track.as_ref(), Some(&track));
+        assert_eq!(state.published_track, None);
+
+        update_presence_state(&mut state, PresenceCommand::SetEnabled(true));
+
+        assert_eq!(state.published_track.as_ref(), Some(&track));
+    }
+
+    #[test]
+    fn disabled_status_is_reported() {
+        let controller = PresenceController::new(false);
+
+        assert_eq!(controller.status(), "Disabled");
     }
 }
