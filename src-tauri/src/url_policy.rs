@@ -43,13 +43,11 @@ fn valid_discord_url(value: Option<&str>, is_allowed_host: fn(&str) -> bool) -> 
 }
 
 fn is_allowed_navigation_host(host: &str) -> bool {
-    matches!(
-        host,
-        "music.youtube.com"
-            | "accounts.google.com"
-            | "accounts.youtube.com"
-            | "consent.youtube.com"
-    )
+    host_matches_domain(host, "youtube.com")
+        || host_matches_domain(host, "google.com")
+        || host_matches_domain(host, "googleapis.com")
+        || host_matches_domain(host, "gstatic.com")
+        || host_matches_domain(host, "googleusercontent.com")
 }
 
 fn is_allowed_track_host(host: &str) -> bool {
@@ -92,6 +90,12 @@ mod tests {
         )));
         assert!(is_allowed_navigation_url(&parse_url(
             "https://consent.youtube.com/"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://myaccount.google.com/"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://www.youtube.com/"
         )));
 
         assert!(!is_allowed_navigation_url(&parse_url(

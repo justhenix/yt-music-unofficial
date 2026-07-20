@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.6 - 2026-07-20
+
+### Fixes
+
+- Fixed Google sign-in navigation being opened in an external browser instead of WebView.
+- Fixed HTML5 audio/video media playback stalling at 0:00 when ad-block is enabled.
+- Fixed WebView2 media autoplay policy requiring manual user gesture.
+
 ## 0.1.5 - 2026-07-12
 
 ### QoL
