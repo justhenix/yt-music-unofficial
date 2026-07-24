@@ -22,6 +22,14 @@ use url_policy::{is_allowed_navigation_url, is_youtube_music_url};
 const YOUTUBE_MUSIC_URL: &str = "https://music.youtube.com";
 const AD_BLOCK_SCRIPT: &str = include_str!("adblock_probe.js");
 const TRACK_PROBE_SCRIPT: &str = include_str!("track_probe.js");
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NewWindowAction {
+    NavigateInMainWebview,
+    OpenExternal,
+    Deny,
+}
+
 // Hidden diagnostics hook: run with YT_MUSIC_ADBLOCK_SELF_TEST=1 and the window
 // title should briefly become ADBLOCK_SELF_TEST:PASS when native blocking works.
 const AD_BLOCK_SELF_TEST_SCRIPT: &str = r#"
@@ -98,6 +106,7 @@ pub fn run() {
             let blank_url = "about:blank"
                 .parse()
                 .expect("static about:blank URL must be valid");
+            let app_for_new_window = app.handle().clone();
 
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(blank_url))
                 .title("YouTube Music")
@@ -119,12 +128,19 @@ pub fn run() {
                     allowed
                 })
                 .on_new_window(move |url, _features| {
-                    if is_allowed_navigation_url(&url) {
-                        NewWindowResponse::Allow
-                    } else {
-                        platform::open_url(url.as_str());
-                        NewWindowResponse::Deny
+                    match new_window_action(&url) {
+                        NewWindowAction::NavigateInMainWebview => {
+                            if let Some(window) = app_for_new_window.get_webview_window("main") {
+                                let _ = window.navigate(url);
+                            }
+                        }
+                        NewWindowAction::OpenExternal => {
+                            platform::open_url(url.as_str());
+                        }
+                        NewWindowAction::Deny => {}
                     }
+
+                    NewWindowResponse::Deny
                 })
                 .on_document_title_changed(move |window, title| {
                     // track_probe.js sends JSON through document.title so the remote
@@ -186,6 +202,16 @@ fn should_accept_presence_message(current_url: Option<&Url>, message: &PresenceM
     }
 }
 
+fn new_window_action(url: &Url) -> NewWindowAction {
+    if url.scheme() == "https" && is_allowed_navigation_url(url) {
+        NewWindowAction::NavigateInMainWebview
+    } else if url.as_str() == "about:blank" {
+        NewWindowAction::Deny
+    } else {
+        NewWindowAction::OpenExternal
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,5 +255,27 @@ mod tests {
     #[test]
     fn ignores_non_track_titles_for_track_bridge() {
         assert!(presence::parse_presence_title("YouTube Music").is_none());
+    }
+
+    #[test]
+    fn routes_allowed_new_windows_back_into_main_webview() {
+        let music_url = parse_url("https://music.youtube.com/");
+        let account_url = parse_url("https://accounts.google.com/signin");
+        let external_url = parse_url("https://example.com/");
+        let blank_url = parse_url("about:blank");
+
+        assert_eq!(
+            new_window_action(&music_url),
+            NewWindowAction::NavigateInMainWebview
+        );
+        assert_eq!(
+            new_window_action(&account_url),
+            NewWindowAction::NavigateInMainWebview
+        );
+        assert_eq!(
+            new_window_action(&external_url),
+            NewWindowAction::OpenExternal
+        );
+        assert_eq!(new_window_action(&blank_url), NewWindowAction::Deny);
     }
 }

@@ -7,6 +7,7 @@
 - Restored ad blocking with host-scoped WebView2 filters that do not intercept media streams.
 - Preserved Share, inactivity, and other YouTube Music dialogs while skipping detected player ads.
 - Reapplied ad blocking after sign-out navigation without changing Google account pages.
+- Kept Google sign-in completion inside the desktop app instead of opening Chrome.
 - Embedded the WebView2 bootstrapper for more reliable first-time Windows installs.
 - Added MSI license/bootstrapper verification and blocked accidental unsigned release builds.
 
