@@ -45,6 +45,7 @@ fn valid_discord_url(value: Option<&str>, is_allowed_host: fn(&str) -> bool) -> 
 fn is_allowed_navigation_host(host: &str) -> bool {
     host_matches_domain(host, "youtube.com")
         || host_matches_domain(host, "google.com")
+        || host_matches_domain(host, "google.co.id")
         || host_matches_domain(host, "googleapis.com")
         || host_matches_domain(host, "gstatic.com")
         || host_matches_domain(host, "googleusercontent.com")
@@ -84,6 +85,9 @@ mod tests {
         )));
         assert!(is_allowed_navigation_url(&parse_url(
             "https://accounts.google.com/signin"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.co.id/signin"
         )));
         assert!(is_allowed_navigation_url(&parse_url(
             "https://accounts.youtube.com/"
