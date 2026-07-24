@@ -69,13 +69,31 @@ This is an upstream WebView2/Tauri limitation; track metadata and media buttons 
 
 ```powershell
 npm install
-npm run build
+npm run build:unsigned
 ```
 
 Build outputs are written under:
 
 ```powershell
 src-tauri\target\release\bundle\
+```
+
+Unsigned builds are for local testing only. Release builds require an Authenticode
+code-signing certificate installed in the current user's certificate store:
+
+```powershell
+$env:WINDOWS_CERTIFICATE_THUMBPRINT = "YOUR_40_CHARACTER_SHA1_THUMBPRINT"
+$env:WINDOWS_TIMESTAMP_URL = "https://YOUR_CERTIFICATE_PROVIDER_TIMESTAMP_URL"
+npm run build
+```
+
+The release build stops if signing is not configured or any generated EXE/MSI
+fails Authenticode, MSI license, or embedded WebView2 verification.
+
+After an unsigned local package build, run the same non-signature bundle checks:
+
+```powershell
+npm run verify:windows
 ```
 
 If `cargo` is not recognized, install Rust from [rust-lang.org/tools/install](https://www.rust-lang.org/tools/install), restart PowerShell, then rerun the build.

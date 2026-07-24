@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- Restored ad blocking with host-scoped WebView2 filters that do not intercept media streams.
+- Preserved Share, inactivity, and other YouTube Music dialogs while skipping detected player ads.
+- Reapplied ad blocking after sign-out navigation without changing Google account pages.
+- Embedded the WebView2 bootstrapper for more reliable first-time Windows installs.
+- Added MSI license/bootstrapper verification and blocked accidental unsigned release builds.
+
 ## 0.1.6 - 2026-07-20
 
 ### Fixes

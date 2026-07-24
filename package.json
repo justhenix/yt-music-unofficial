@@ -6,9 +6,11 @@
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "powershell -NoProfile -File scripts/build-windows.ps1",
+    "build:unsigned": "tauri build",
     "test": "node --test tests/*.test.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "verify:windows": "powershell -NoProfile -File scripts/verify-windows-bundle.ps1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4"
