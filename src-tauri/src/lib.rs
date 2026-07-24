@@ -101,7 +101,6 @@ pub fn run() {
 
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(blank_url))
                 .title("YouTube Music")
-                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
                 .inner_size(1280.0, 840.0)
                 .min_inner_size(900.0, 620.0)
                 .center()
