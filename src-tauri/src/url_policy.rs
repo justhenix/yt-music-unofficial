@@ -45,11 +45,30 @@ fn valid_discord_url(value: Option<&str>, is_allowed_host: fn(&str) -> bool) -> 
 fn is_allowed_navigation_host(host: &str) -> bool {
     host_matches_domain(host, "youtube.com")
         || host_matches_domain(host, "google.com")
-        || host_matches_domain(host, "google.co.id")
-        || host_matches_domain(host, "google.com.sg")
+        || is_regional_google_accounts_host(host)
         || host_matches_domain(host, "googleapis.com")
         || host_matches_domain(host, "gstatic.com")
         || host_matches_domain(host, "googleusercontent.com")
+}
+
+fn is_regional_google_accounts_host(host: &str) -> bool {
+    let Some(suffix) = host.strip_prefix("accounts.google.") else {
+        return false;
+    };
+
+    let parts: Vec<_> = suffix.split('.').collect();
+
+    match parts.as_slice() {
+        [country] => is_country_code(country),
+        [second_level, country] => {
+            matches!(*second_level, "co" | "com") && is_country_code(country)
+        }
+        _ => false,
+    }
+}
+
+fn is_country_code(value: &str) -> bool {
+    value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic())
 }
 
 fn is_allowed_track_host(host: &str) -> bool {
@@ -94,6 +113,15 @@ mod tests {
             "https://accounts.google.com.sg/accounts/SetSID"
         )));
         assert!(is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.com.ph/accounts/SetSID"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.co.uk/signin"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.de/signin"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
             "https://accounts.youtube.com/"
         )));
         assert!(is_allowed_navigation_url(&parse_url(
@@ -123,6 +151,12 @@ mod tests {
         )));
         assert!(!is_allowed_navigation_url(&parse_url(
             "https://accounts.google.com.sg.example.com/"
+        )));
+        assert!(!is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.example.ph/"
+        )));
+        assert!(!is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.com.example/"
         )));
     }
 
