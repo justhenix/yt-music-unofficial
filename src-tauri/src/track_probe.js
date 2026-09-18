@@ -1,4 +1,7 @@
 (() => {
+  if (location.hostname !== "music.youtube.com") {
+    return;
+  }
   if (window.__ytMusicTauriProbeInstalled) {
     return;
   }
@@ -118,28 +121,111 @@
   };
 
   const readPlaying = () => {
-    // The media element is the source of truth. Button labels can be stale or inverted
-    // while YouTube Music is swapping tracks, which previously caused false "Paused" RPC.
-    const media = document.querySelector("video, audio");
-    if (media && typeof media.paused === "boolean") {
-      return !media.paused;
+    // 1. YouTube movie_player element directly
+    const player = document.querySelector("#movie_player, .html5-video-player");
+    if (player) {
+      if (player.classList.contains("playing-mode")) {
+        return true;
+      }
+      if (player.classList.contains("paused-mode")) {
+        return false;
+      }
+      if (typeof player.getPlayerState === "function") {
+        const state = player.getPlayerState();
+        if (state === 1 || state === 3) {
+          return true;
+        }
+        if (state === 2) {
+          return false;
+        }
+      }
     }
 
+    // 2. The actual YouTube HTML5 video player
+    const mainVideo = document.querySelector(
+      "video.video-stream, video.html5-main-video, .html5-video-player video, #player video"
+    );
+    if (mainVideo && typeof mainVideo.paused === "boolean") {
+      if (!mainVideo.paused && !mainVideo.ended) {
+        return true;
+      }
+      if (mainVideo.paused) {
+        return false;
+      }
+    }
+
+    // 3. Any media currently playing
+    for (const media of document.querySelectorAll("video, audio")) {
+      if (!media.paused && !media.ended && media.currentTime > 0) {
+        return true;
+      }
+    }
+
+    // 4. Play-pause button on the player bar (icon attribute or multi-language labels)
     const button = document.querySelector(
       "ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button"
     );
-    const label = clean(
-      (button && (button.getAttribute("title") || button.getAttribute("aria-label"))) || ""
-    ).toLowerCase();
+    if (button) {
+      const icon = clean(
+        button.getAttribute("icon") ||
+        (button.querySelector("tp-yt-iron-icon, iron-icon, yt-icon") &&
+          button.querySelector("tp-yt-iron-icon, iron-icon, yt-icon").getAttribute("icon")) ||
+        ""
+      ).toLowerCase();
+      if (icon.includes("pause")) {
+        return true;
+      }
+      if (icon.includes("play")) {
+        return false;
+      }
 
-    if (label.includes("pause")) {
-      return true;
+      const label = clean(
+        button.getAttribute("title") ||
+        button.getAttribute("aria-label") ||
+        button.getAttribute("aria-label-text") ||
+        ""
+      ).toLowerCase();
+      if (
+        label.includes("pause") ||
+        label.includes("jeda") ||
+        label.includes("pausar") ||
+        label.includes("pausa") ||
+        label.includes("pauzeren") ||
+        label.includes("一時停止") ||
+        label.includes("일시중지") ||
+        label.includes("暂停") ||
+        label.includes("приостановить")
+      ) {
+        return true;
+      }
+      if (
+        label.includes("play") ||
+        label.includes("putar") ||
+        label.includes("reproducir") ||
+        label.includes("lire") ||
+        label.includes("wiedergabe") ||
+        label.includes("riproduci") ||
+        label.includes("afspelen") ||
+        label.includes("再生") ||
+        label.includes("재생") ||
+        label.includes("播放") ||
+        label.includes("воспроизвести")
+      ) {
+        return false;
+      }
     }
 
-    if (label.includes("play")) {
-      return false;
+    // 5. MediaSession API if active
+    if (typeof navigator !== "undefined" && navigator.mediaSession && navigator.mediaSession.playbackState) {
+      if (navigator.mediaSession.playbackState === "playing") {
+        return true;
+      }
+      if (navigator.mediaSession.playbackState === "paused") {
+        return false;
+      }
     }
 
+    // 6. Fallback: player bar class
     const playerBar = document.querySelector("ytmusic-player-bar");
     return Boolean(playerBar && playerBar.className && String(playerBar.className).includes("playing"));
   };
@@ -284,7 +370,9 @@
     lastPayload = CLEAR_PAYLOAD;
     lastPresenceKey = "";
     lastProgressPublish = 0;
-    document.title = CLEAR_PAYLOAD;
+    if (document.title !== CLEAR_PAYLOAD) {
+      document.title = CLEAR_PAYLOAD;
+    }
   };
 
   const publish = () => {
@@ -311,41 +399,60 @@
       return;
     }
 
-    if (payload !== lastPayload) {
+    if (payload !== lastPayload || (document.title && !document.title.startsWith(PREFIX))) {
       lastPayload = payload;
       lastPresenceKey = key;
       lastProgressPublish = now;
       // Tauri listens for title changes from the remote page. This avoids exposing
       // a Tauri IPC surface to music.youtube.com.
-      document.title = payload;
+      if (document.title !== payload) {
+        document.title = payload;
+      }
     }
   };
 
-  const schedulePublish = () => {
+  const schedulePublish = (delay = 60) => {
     window.clearTimeout(publishTimer);
-    publishTimer = window.setTimeout(publish, 180);
+    publishTimer = window.setTimeout(publish, delay);
   };
 
   const installObserver = () => {
-    if (!document.documentElement) {
+    const playerBar = document.querySelector("ytmusic-player-bar");
+    if (!playerBar) {
       window.setTimeout(installObserver, 100);
       return;
     }
 
-    const observer = new MutationObserver(schedulePublish);
-    observer.observe(document.documentElement, {
+    const observer = new MutationObserver(() => schedulePublish(40));
+    observer.observe(playerBar, {
       attributes: true,
       childList: true,
       characterData: true,
       subtree: true,
     });
 
-    document.addEventListener("yt-navigate-finish", schedulePublish, true);
-    document.addEventListener("play", schedulePublish, true);
-    document.addEventListener("pause", schedulePublish, true);
+    const player = document.querySelector("#movie_player, .html5-video-player");
+    if (player) {
+      observer.observe(player, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+    }
 
-    window.setInterval(publish, 2500);
-    schedulePublish();
+    document.addEventListener("yt-navigate-finish", () => schedulePublish(100), true);
+    document.addEventListener("play", () => schedulePublish(10), true);
+    document.addEventListener("pause", () => schedulePublish(10), true);
+    document.addEventListener("playing", () => schedulePublish(10), true);
+    document.addEventListener("ratechange", () => schedulePublish(30), true);
+    document.addEventListener("ended", () => schedulePublish(30), true);
+
+    window.setInterval(() => {
+      if (!playerBar.isConnected) {
+        installObserver();
+      }
+      publish();
+    }, 1500);
+    schedulePublish(0);
   };
 
   installObserver();

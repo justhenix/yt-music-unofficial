@@ -14,6 +14,7 @@ pub struct Settings {
     pub launch_at_startup: bool,
     pub start_minimized: bool,
     pub zoom: f64,
+    pub windows_media_controls: bool,
 }
 
 impl Default for Settings {
@@ -25,6 +26,7 @@ impl Default for Settings {
             launch_at_startup: false,
             start_minimized: false,
             zoom: 1.0,
+            windows_media_controls: true,
         }
     }
 }

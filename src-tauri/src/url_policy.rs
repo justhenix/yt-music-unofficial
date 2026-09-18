@@ -5,6 +5,230 @@ use tauri::Url;
 
 const MAX_DISCORD_URL_LEN: usize = 512;
 
+// Google-owned regional domains mirrored from Chromium's kGoogleConfigs.
+// Keep this list sorted so binary_search remains valid.
+pub const GOOGLE_REGIONAL_DOMAINS: &[&str] = &[
+    "google.ac",
+    "google.ad",
+    "google.ae",
+    "google.af",
+    "google.ag",
+    "google.al",
+    "google.am",
+    "google.as",
+    "google.at",
+    "google.az",
+    "google.ba",
+    "google.be",
+    "google.bf",
+    "google.bg",
+    "google.bi",
+    "google.bj",
+    "google.bs",
+    "google.bt",
+    "google.by",
+    "google.ca",
+    "google.cc",
+    "google.cd",
+    "google.cf",
+    "google.cg",
+    "google.ch",
+    "google.ci",
+    "google.cl",
+    "google.cm",
+    "google.cn",
+    "google.co.ao",
+    "google.co.bw",
+    "google.co.ck",
+    "google.co.cr",
+    "google.co.hu",
+    "google.co.id",
+    "google.co.il",
+    "google.co.im",
+    "google.co.in",
+    "google.co.je",
+    "google.co.jp",
+    "google.co.ke",
+    "google.co.kr",
+    "google.co.ls",
+    "google.co.ma",
+    "google.co.mz",
+    "google.co.nz",
+    "google.co.th",
+    "google.co.tz",
+    "google.co.ug",
+    "google.co.uk",
+    "google.co.uz",
+    "google.co.ve",
+    "google.co.vi",
+    "google.co.za",
+    "google.co.zm",
+    "google.co.zw",
+    "google.com.af",
+    "google.com.ag",
+    "google.com.ai",
+    "google.com.ar",
+    "google.com.au",
+    "google.com.bd",
+    "google.com.bh",
+    "google.com.bn",
+    "google.com.bo",
+    "google.com.br",
+    "google.com.by",
+    "google.com.bz",
+    "google.com.cn",
+    "google.com.co",
+    "google.com.cu",
+    "google.com.cy",
+    "google.com.do",
+    "google.com.ec",
+    "google.com.eg",
+    "google.com.et",
+    "google.com.fj",
+    "google.com.ge",
+    "google.com.gh",
+    "google.com.gi",
+    "google.com.gr",
+    "google.com.gt",
+    "google.com.hk",
+    "google.com.iq",
+    "google.com.jm",
+    "google.com.jo",
+    "google.com.kh",
+    "google.com.kw",
+    "google.com.lb",
+    "google.com.ly",
+    "google.com.mm",
+    "google.com.mt",
+    "google.com.mx",
+    "google.com.my",
+    "google.com.na",
+    "google.com.nf",
+    "google.com.ng",
+    "google.com.ni",
+    "google.com.np",
+    "google.com.nr",
+    "google.com.om",
+    "google.com.pa",
+    "google.com.pe",
+    "google.com.pg",
+    "google.com.ph",
+    "google.com.pk",
+    "google.com.pl",
+    "google.com.pr",
+    "google.com.py",
+    "google.com.qa",
+    "google.com.ru",
+    "google.com.sa",
+    "google.com.sb",
+    "google.com.sg",
+    "google.com.sl",
+    "google.com.sv",
+    "google.com.tj",
+    "google.com.tn",
+    "google.com.tr",
+    "google.com.tw",
+    "google.com.ua",
+    "google.com.uy",
+    "google.com.vc",
+    "google.com.ve",
+    "google.com.vn",
+    "google.cv",
+    "google.cz",
+    "google.de",
+    "google.dj",
+    "google.dk",
+    "google.dm",
+    "google.dz",
+    "google.ee",
+    "google.es",
+    "google.fi",
+    "google.fm",
+    "google.fr",
+    "google.ga",
+    "google.ge",
+    "google.gg",
+    "google.gl",
+    "google.gm",
+    "google.gp",
+    "google.gr",
+    "google.gy",
+    "google.hk",
+    "google.hn",
+    "google.hr",
+    "google.ht",
+    "google.hu",
+    "google.ie",
+    "google.im",
+    "google.iq",
+    "google.ir",
+    "google.is",
+    "google.it",
+    "google.it.ao",
+    "google.je",
+    "google.jo",
+    "google.jp",
+    "google.kg",
+    "google.ki",
+    "google.kz",
+    "google.la",
+    "google.li",
+    "google.lk",
+    "google.lt",
+    "google.lu",
+    "google.lv",
+    "google.md",
+    "google.me",
+    "google.mg",
+    "google.mk",
+    "google.ml",
+    "google.mn",
+    "google.ms",
+    "google.mu",
+    "google.mv",
+    "google.mw",
+    "google.ne",
+    "google.ne.jp",
+    "google.ng",
+    "google.nl",
+    "google.no",
+    "google.nr",
+    "google.nu",
+    "google.off.ai",
+    "google.pk",
+    "google.pl",
+    "google.pn",
+    "google.ps",
+    "google.pt",
+    "google.ro",
+    "google.rs",
+    "google.ru",
+    "google.rw",
+    "google.sc",
+    "google.se",
+    "google.sh",
+    "google.si",
+    "google.sk",
+    "google.sm",
+    "google.sn",
+    "google.so",
+    "google.sr",
+    "google.st",
+    "google.td",
+    "google.tg",
+    "google.tk",
+    "google.tl",
+    "google.tm",
+    "google.tn",
+    "google.to",
+    "google.tt",
+    "google.us",
+    "google.uz",
+    "google.vg",
+    "google.vu",
+    "google.ws",
+];
+
 pub fn is_allowed_navigation_url(url: &Url) -> bool {
     match url.scheme() {
         "about" => url.as_str() == "about:blank",
@@ -15,6 +239,71 @@ pub fn is_allowed_navigation_url(url: &Url) -> bool {
 
 pub fn is_youtube_music_url(url: &Url) -> bool {
     url.scheme() == "https" && url.host_str() == Some("music.youtube.com")
+}
+
+pub fn is_google_cctld_host(host: &str) -> bool {
+    let lower = host.to_ascii_lowercase();
+    if let Some(pos) = lower.rfind("google.") {
+        if pos == 0 || lower.as_bytes().get(pos - 1) == Some(&b'.') {
+            let candidate = &lower[pos..];
+            return GOOGLE_REGIONAL_DOMAINS.binary_search(&candidate).is_ok();
+        }
+    }
+    false
+}
+
+pub fn is_auth_intermediate_url(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    if !host_matches_domain(host, "youtube.com")
+        && !host_matches_domain(host, "google.com")
+        && !is_google_cctld_host(host)
+    {
+        return false;
+    }
+    let path = url.path();
+    path.contains("/accounts/SetSID")
+        || path.contains("/CheckCookie")
+        || path.contains("/signin_passive")
+        || url
+            .query()
+            .is_some_and(|q| q.contains("action_handle_signin=true"))
+}
+
+pub fn is_auth_recovery_url(url: &Url) -> bool {
+    if url.scheme() != "https" {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let path = url.path();
+
+    if matches!(
+        host,
+        "music.youtube.com" | "www.youtube.com" | "youtube.com"
+    ) && (path == "/oops"
+        || path.starts_with("/oops/")
+        || path == "/error"
+        || path.starts_with("/error/"))
+    {
+        return true;
+    }
+
+    if (host == "accounts.google.com" || is_google_cctld_host(host))
+        && (path == "/signin/rejected"
+            || path.starts_with("/signin/rejected/")
+            || path == "/info/unknownerror"
+            || path.starts_with("/info/unknownerror/")
+            || url
+                .query()
+                .is_some_and(|q| q.contains("error=disallowed_useragent")))
+    {
+        return true;
+    }
+
+    false
 }
 
 pub fn valid_track_url(value: Option<&str>) -> Option<&str> {
@@ -45,8 +334,9 @@ fn valid_discord_url(value: Option<&str>, is_allowed_host: fn(&str) -> bool) -> 
 fn is_allowed_navigation_host(host: &str) -> bool {
     host_matches_domain(host, "youtube.com")
         || host_matches_domain(host, "google.com")
-        || host_matches_domain(host, "google.co.id")
-        || host_matches_domain(host, "google.com.sg")
+        || host_matches_domain(host, "google")
+        || host_matches_domain(host, "youtube")
+        || is_google_cctld_host(host)
         || host_matches_domain(host, "googleapis.com")
         || host_matches_domain(host, "gstatic.com")
         || host_matches_domain(host, "googleusercontent.com")
@@ -79,6 +369,38 @@ mod tests {
     }
 
     #[test]
+    fn regional_google_domains_stay_sorted() {
+        assert!(GOOGLE_REGIONAL_DOMAINS
+            .windows(2)
+            .all(|domains| domains[0] < domains[1]));
+    }
+
+    #[test]
+    fn google_cctld_matching_detects_all_valid_domains() {
+        assert!(is_google_cctld_host("google.de"));
+        assert!(is_google_cctld_host("google.co.uk"));
+        assert!(is_google_cctld_host("google.co.jp"));
+        assert!(is_google_cctld_host("google.ca"));
+        assert!(is_google_cctld_host("google.co.id"));
+        assert!(is_google_cctld_host("google.com.sg"));
+        assert!(is_google_cctld_host("accounts.google.co.id"));
+        assert!(is_google_cctld_host("accounts.google.com.sg"));
+        assert!(is_google_cctld_host("accounts.google.de"));
+        assert!(is_google_cctld_host("accounts.google.co.uk"));
+        assert!(is_google_cctld_host("myaccount.google.co.jp"));
+
+        assert!(is_google_cctld_host("GOOGLE.DE"));
+        assert!(is_google_cctld_host("Accounts.Google.Co.Uk"));
+
+        assert!(!is_google_cctld_host("google.com")); // covered by google.com match
+        assert!(!is_google_cctld_host("fakegoogle.de"));
+        assert!(!is_google_cctld_host("accounts.google.zz"));
+        assert!(!is_google_cctld_host("accounts.google.example.ph"));
+        assert!(!is_google_cctld_host("accounts.google.com.sg.example.com"));
+        assert!(!is_google_cctld_host("example.com"));
+    }
+
+    #[test]
     fn navigation_is_limited_to_expected_hosts() {
         assert!(is_allowed_navigation_url(&parse_url("about:blank")));
         assert!(is_allowed_navigation_url(&parse_url(
@@ -94,13 +416,34 @@ mod tests {
             "https://accounts.google.com.sg/accounts/SetSID"
         )));
         assert!(is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.de/signin"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.co.uk/signin"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
             "https://accounts.youtube.com/"
         )));
         assert!(is_allowed_navigation_url(&parse_url(
             "https://consent.youtube.com/"
         )));
         assert!(is_allowed_navigation_url(&parse_url(
+            "https://consent.google.com/"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
             "https://myaccount.google.com/"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://passkeys.google.com/"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://smartlock.google.com/"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://passkeys.google/"
+        )));
+        assert!(is_allowed_navigation_url(&parse_url(
+            "https://welcome.youtube/"
         )));
         assert!(is_allowed_navigation_url(&parse_url(
             "https://www.youtube.com/"
@@ -124,6 +467,12 @@ mod tests {
         assert!(!is_allowed_navigation_url(&parse_url(
             "https://accounts.google.com.sg.example.com/"
         )));
+        assert!(!is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.example.ph/"
+        )));
+        assert!(!is_allowed_navigation_url(&parse_url(
+            "https://accounts.google.zz/"
+        )));
     }
 
     #[test]
@@ -136,6 +485,79 @@ mod tests {
         )));
         assert!(!is_youtube_music_url(&parse_url(
             "https://music.youtube.com.example.com/"
+        )));
+    }
+
+    #[test]
+    fn detects_auth_intermediate_urls() {
+        assert!(is_auth_intermediate_url(&parse_url(
+            "https://accounts.youtube.com/accounts/SetSID?ss_c=1"
+        )));
+        assert!(is_auth_intermediate_url(&parse_url(
+            "https://accounts.google.com/CheckCookie?continue=https://youtube.com"
+        )));
+        assert!(is_auth_intermediate_url(&parse_url(
+            "https://www.youtube.com/signin_passive"
+        )));
+        assert!(is_auth_intermediate_url(&parse_url(
+            "https://music.youtube.com/?action_handle_signin=true"
+        )));
+        assert!(is_auth_intermediate_url(&parse_url(
+            "https://accounts.google.co.id/accounts/SetSID?ss_c=1"
+        )));
+
+        assert!(!is_auth_intermediate_url(&parse_url(
+            "https://music.youtube.com/watch?v=123"
+        )));
+        assert!(!is_auth_intermediate_url(&parse_url(
+            "https://accounts.google.com/signin/v2/identifier"
+        )));
+    }
+
+    #[test]
+    fn detects_auth_recovery_urls() {
+        assert!(is_auth_recovery_url(&parse_url(
+            "https://music.youtube.com/oops"
+        )));
+        assert!(is_auth_recovery_url(&parse_url(
+            "https://music.youtube.com/error"
+        )));
+        assert!(is_auth_recovery_url(&parse_url(
+            "https://www.youtube.com/oops"
+        )));
+        assert!(is_auth_recovery_url(&parse_url(
+            "https://youtube.com/error"
+        )));
+        assert!(is_auth_recovery_url(&parse_url(
+            "https://accounts.google.com/signin/rejected"
+        )));
+        assert!(is_auth_recovery_url(&parse_url(
+            "https://accounts.google.com/info/unknownerror"
+        )));
+        assert!(is_auth_recovery_url(&parse_url(
+            "https://accounts.google.com/o/oauth2/v2/auth?error=disallowed_useragent"
+        )));
+
+        assert!(!is_auth_recovery_url(&parse_url(
+            "https://music.youtube.com/"
+        )));
+        assert!(!is_auth_recovery_url(&parse_url(
+            "https://www.youtube.com/watch?v=123"
+        )));
+        assert!(!is_auth_recovery_url(&parse_url(
+            "https://accounts.google.com/signin/v2/identifier"
+        )));
+        assert!(!is_auth_recovery_url(&parse_url(
+            "https://music.youtube.com/channel/UC_Terror_Squad"
+        )));
+        assert!(!is_auth_recovery_url(&parse_url(
+            "https://music.youtube.com/browse/MPREb_error123"
+        )));
+        assert!(!is_auth_recovery_url(&parse_url(
+            "https://music.youtube.com/watch?v=123&t=oops"
+        )));
+        assert!(!is_auth_recovery_url(&parse_url(
+            "https://accounts.google.com/AccountChooser"
         )));
     }
 

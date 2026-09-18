@@ -24,3 +24,4 @@ src-tauri/icons/Square*.png
 *.log
 *.tmp
 *.zip
+*.exe

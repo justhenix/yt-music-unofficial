@@ -8,11 +8,19 @@ const probeScript = readFileSync(
   "utf8",
 );
 
-function createHarness({ adShowing = false, enabled = true, hostname = "music.youtube.com" } = {}) {
+function createHarness({
+  adShowing = false,
+  enabled = true,
+  hostname = "music.youtube.com",
+  layoutInert = false,
+  backdropOpened = false,
+} = {}) {
   const intervals = [];
   const styles = [];
   const playerClasses = new Set(adShowing ? ["ad-showing"] : []);
   let skipClicks = 0;
+  let inertRemoved = false;
+  let backdropOpenedCleared = false;
 
   const media = {
     currentTime: 2,
@@ -31,6 +39,28 @@ function createHarness({ adShowing = false, enabled = true, hostname = "music.yo
       skipClicks += 1;
     },
   };
+  const layout = {
+    removeAttribute(name) {
+      if (name === "inert") {
+        inertRemoved = true;
+      }
+    },
+  };
+  const backdrop = {
+    style: { pointerEvents: backdropOpened ? "auto" : "none" },
+    classList: {
+      toggle(cls, val) {
+        if (cls === "opened" && !val) {
+          backdropOpenedCleared = true;
+        }
+      },
+    },
+    removeAttribute(name) {
+      if (name === "opened") {
+        backdropOpenedCleared = true;
+      }
+    },
+  };
   const location = { hostname };
   const document = {
     head: {
@@ -47,6 +77,9 @@ function createHarness({ adShowing = false, enabled = true, hostname = "music.yo
       if (selector === ".html5-video-player") {
         return player;
       }
+      if (selector === "ytmusic-app-layout[inert]") {
+        return layoutInert ? layout : null;
+      }
       if (selector.includes("ytp-ad-skip")) {
         return playerClasses.has("ad-showing") || playerClasses.has("ad-interrupting")
           ? skipButton
@@ -55,7 +88,13 @@ function createHarness({ adShowing = false, enabled = true, hostname = "music.yo
       return null;
     },
     querySelectorAll(selector) {
-      return selector === "video, audio" ? [media] : [];
+      if (selector === "video, audio") {
+        return [media];
+      }
+      if (selector.includes("tp-yt-iron-overlay-backdrop")) {
+        return backdropOpened ? [backdrop] : [];
+      }
+      return [];
     },
   };
   class MutationObserver {
@@ -88,6 +127,9 @@ function createHarness({ adShowing = false, enabled = true, hostname = "music.yo
   });
 
   return {
+    backdrop,
+    isInertRemoved: () => inertRemoved,
+    isBackdropCleared: () => backdropOpenedCleared,
     location,
     media,
     playerClasses,
@@ -147,4 +189,21 @@ test("never hides or removes generic YouTube Music dialogs", () => {
 
   assert.doesNotMatch(injectedCss, /ytmusic-popup-container|tp-yt-paper-dialog/);
   assert.doesNotMatch(probeScript, /\.remove\s*\(/);
+});
+
+test("removes inert attribute from ytmusic-app-layout when promo leaves it behind", () => {
+  const harness = createHarness({ layoutInert: true });
+
+  harness.run();
+
+  assert.equal(harness.isInertRemoved(), true);
+});
+
+test("clears orphaned iron-overlay-backdrops even when layout has no inert attribute", () => {
+  const harness = createHarness({ layoutInert: false, backdropOpened: true });
+
+  harness.run();
+
+  assert.equal(harness.isBackdropCleared(), true);
+  assert.equal(harness.backdrop.style.pointerEvents, "none");
 });

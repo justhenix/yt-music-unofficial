@@ -34,6 +34,7 @@ const AD_BLOCK_STATUS_ID: &str = "ad_block_status";
 const CLOSE_TO_TRAY_ID: &str = "close_to_tray";
 const STARTUP_ID: &str = "startup";
 const START_MINIMIZED_ID: &str = "start_minimized";
+const WINDOWS_MEDIA_CONTROLS_ID: &str = "windows_media_controls";
 const CLEAR_CACHE_ID: &str = "clear_cache";
 const RESET_SESSION_ID: &str = "reset_session";
 const CHECK_UPDATES_ID: &str = "check_updates";
@@ -56,18 +57,23 @@ pub struct AppState {
 }
 
 #[derive(Clone)]
-struct CheckItems {
-    discord: CheckMenuItem<tauri::Wry>,
-    tray_discord: CheckMenuItem<tauri::Wry>,
-    ad_block: CheckMenuItem<tauri::Wry>,
-    close_to_tray: CheckMenuItem<tauri::Wry>,
-    startup: CheckMenuItem<tauri::Wry>,
-    start_minimized: CheckMenuItem<tauri::Wry>,
+pub struct CheckItems {
+    pub discord: CheckMenuItem<tauri::Wry>,
+    pub tray_discord: CheckMenuItem<tauri::Wry>,
+    pub ad_block: CheckMenuItem<tauri::Wry>,
+    pub close_to_tray: CheckMenuItem<tauri::Wry>,
+    pub startup: CheckMenuItem<tauri::Wry>,
+    pub start_minimized: CheckMenuItem<tauri::Wry>,
+    pub windows_media_controls: CheckMenuItem<tauri::Wry>,
 }
 
-pub fn install(app: &mut App, state: AppState) -> tauri::Result<()> {
+pub struct AppMenuComponents {
+    pub menu: tauri::menu::Menu<tauri::Wry>,
+    pub checks: CheckItems,
+}
+
+pub fn install(app: &mut App, state: AppState, checks: CheckItems) -> tauri::Result<()> {
     let initial = settings::snapshot(&state.settings);
-    let checks = build_app_menu(app, &initial)?;
     build_tray(app, &checks, &initial)?;
     set_local_shortcuts(app.handle(), true, &state);
     for (shortcut, action) in [
@@ -140,7 +146,7 @@ pub fn set_local_shortcuts(app: &AppHandle, focused: bool, state: &AppState) {
     }
 }
 
-fn build_app_menu(app: &App, initial: &settings::Settings) -> tauri::Result<CheckItems> {
+pub fn build_app_menu(app: &App, initial: &settings::Settings) -> tauri::Result<AppMenuComponents> {
     let previous = MenuItemBuilder::with_id(PREVIOUS_ID, "Previous")
         .accelerator("Ctrl+Alt+A")
         .build(app)?;
@@ -187,6 +193,12 @@ fn build_app_menu(app: &App, initial: &settings::Settings) -> tauri::Result<Chec
         .build(app)?;
     let ad_block_status =
         MenuItemBuilder::with_id(AD_BLOCK_STATUS_ID, "Ad-block Status").build(app)?;
+    let windows_media_controls = CheckMenuItemBuilder::with_id(
+        WINDOWS_MEDIA_CONTROLS_ID,
+        "Taskbar Media Controls",
+    )
+    .checked(initial.windows_media_controls)
+    .build(app)?;
     let close_to_tray = CheckMenuItemBuilder::with_id(CLOSE_TO_TRAY_ID, "Close to Tray")
         .checked(initial.close_to_tray)
         .build(app)?;
@@ -195,7 +207,6 @@ fn build_app_menu(app: &App, initial: &settings::Settings) -> tauri::Result<Chec
         .build(app)?;
     let start_minimized = CheckMenuItemBuilder::with_id(START_MINIMIZED_ID, "Start Minimized")
         .checked(initial.start_minimized)
-        .enabled(initial.launch_at_startup)
         .build(app)?;
     let separator_one = PredefinedMenuItem::separator(app)?;
     let separator_two = PredefinedMenuItem::separator(app)?;
@@ -206,6 +217,7 @@ fn build_app_menu(app: &App, initial: &settings::Settings) -> tauri::Result<Chec
         .item(&ad_block)
         .item(&ad_block_status)
         .item(&separator_two)
+        .item(&windows_media_controls)
         .item(&close_to_tray)
         .item(&startup)
         .item(&start_minimized)
@@ -232,22 +244,22 @@ fn build_app_menu(app: &App, initial: &settings::Settings) -> tauri::Result<Chec
         .item(&settings_menu)
         .item(&tools)
         .build()?;
-    if let Some(window) = app.get_webview_window("main") {
-        window.set_menu(menu)?;
-    }
 
     let tray_discord = CheckMenuItemBuilder::with_id(TRAY_DISCORD_RPC_ID, "Discord RPC")
         .checked(initial.discord_rpc)
         .build(app)?;
 
-    Ok(CheckItems {
+    let checks = CheckItems {
         discord,
         tray_discord,
         ad_block,
         close_to_tray,
         startup,
         start_minimized,
-    })
+        windows_media_controls,
+    };
+
+    Ok(AppMenuComponents { menu, checks })
 }
 
 fn build_tray(app: &App, checks: &CheckItems, initial: &settings::Settings) -> tauri::Result<()> {
@@ -327,6 +339,11 @@ fn handle_menu_event(app: &AppHandle, id: &str, state: &AppState, checks: &Check
             let enabled = checks.close_to_tray.is_checked().unwrap_or(false);
             settings::update(&state.settings, |value| value.close_to_tray = enabled);
         }
+        WINDOWS_MEDIA_CONTROLS_ID => {
+            let enabled = checks.windows_media_controls.is_checked().unwrap_or(true);
+            settings::update(&state.settings, |value| value.windows_media_controls = enabled);
+            crate::windows_media::refresh(app);
+        }
         STARTUP_ID => set_startup(state, checks),
         START_MINIMIZED_ID => set_start_minimized(state, checks),
         CLEAR_CACHE_ID => clear_cache(app),
@@ -370,7 +387,6 @@ fn set_startup(state: &AppState, checks: &CheckItems) {
 
     match platform::set_startup_enabled(enabled, minimized) {
         Ok(()) => {
-            let _ = checks.start_minimized.set_enabled(enabled);
             settings::update(&state.settings, |value| {
                 value.launch_at_startup = enabled;
                 value.start_minimized = minimized;
@@ -387,10 +403,12 @@ fn set_start_minimized(state: &AppState, checks: &CheckItems) {
     let minimized = checks.start_minimized.is_checked().unwrap_or(false);
     let enabled = checks.startup.is_checked().unwrap_or(false);
 
-    if let Err(error) = platform::set_startup_enabled(enabled, minimized) {
-        let _ = checks.start_minimized.set_checked(!minimized);
-        platform::error("Launch at Startup", &error.to_string());
-        return;
+    if enabled {
+        if let Err(error) = platform::set_startup_enabled(true, minimized) {
+            let _ = checks.start_minimized.set_checked(!minimized);
+            platform::error("Launch at Startup", &error.to_string());
+            return;
+        }
     }
 
     settings::update(&state.settings, |value| value.start_minimized = minimized);
@@ -451,13 +469,13 @@ fn eval_main(app: &AppHandle, script: &str) {
 fn media_action(app: &AppHandle, action: &str) {
     let script = match action {
         PREVIOUS_ID => {
-            "(() => { const button = document.querySelector('ytmusic-player-bar #previous-button, ytmusic-player-bar #previous-song-button, ytmusic-player-bar .previous-button, ytmusic-player-bar [aria-label^=\"Previous\"]'); if (button) button.click(); else { const media = document.querySelector('video, audio'); if (media) media.currentTime = 0; } })();"
+            "(() => { const button = document.querySelector('ytmusic-player-bar #previous-button, ytmusic-player-bar #previous-song-button, ytmusic-player-bar .previous-button, ytmusic-player-bar [aria-label^=\"Previous\"]'); if (button) button.click(); else { const player = document.querySelector('#movie_player'); if (player && typeof player.previousVideo === 'function') player.previousVideo(); else { const media = document.querySelector('video, audio'); if (media) media.currentTime = 0; } } })();"
         }
         PLAY_PAUSE_ID => {
-            "(() => { const media = document.querySelector('video, audio'); if (media) media.paused ? media.play() : media.pause(); else document.querySelector('ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button')?.click(); })();"
+            "(() => { const button = document.querySelector('ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button'); if (button) button.click(); else { const player = document.querySelector('#movie_player'); if (player && typeof player.playVideo === 'function') { player.getPlayerState() === 1 ? player.pauseVideo() : player.playVideo(); } else { const media = document.querySelector('video.video-stream, video.html5-main-video, video, audio'); if (media) media.paused ? media.play() : media.pause(); } } })();"
         }
         NEXT_ID => {
-            "(() => { const button = document.querySelector('ytmusic-player-bar #next-button, ytmusic-player-bar #next-song-button, ytmusic-player-bar .next-button, ytmusic-player-bar [aria-label^=\"Next\"]'); if (button) button.click(); else { const media = document.querySelector('video, audio'); if (media && Number.isFinite(media.duration)) media.currentTime = media.duration; } })();"
+            "(() => { const button = document.querySelector('ytmusic-player-bar #next-button, ytmusic-player-bar #next-song-button, ytmusic-player-bar .next-button, ytmusic-player-bar [aria-label^=\"Next\"]'); if (button) button.click(); else { const player = document.querySelector('#movie_player'); if (player && typeof player.nextVideo === 'function') player.nextVideo(); else { const media = document.querySelector('video, audio'); if (media && Number.isFinite(media.duration)) media.currentTime = media.duration; } } })();"
         }
         _ => return,
     };
@@ -474,7 +492,9 @@ pub fn show_main_window(app: &AppHandle) {
 
 pub fn toggle_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
+        let is_visible = window.is_visible().unwrap_or(false);
+        let is_minimized = window.is_minimized().unwrap_or(false);
+        if is_visible && !is_minimized {
             let _ = window.hide();
         } else {
             show_main_window(app);

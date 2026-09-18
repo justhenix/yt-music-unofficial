@@ -7,6 +7,7 @@ mod presence;
 mod settings;
 mod updates;
 mod url_policy;
+mod windows_media;
 
 use adblock::AdBlockController;
 use controls::AppState;
@@ -17,6 +18,7 @@ use std::sync::{
 };
 use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
 use tauri::{Manager, Url, WebviewUrl, WindowEvent};
+use tauri_plugin_window_state::StateFlags;
 use url_policy::{is_allowed_navigation_url, is_youtube_music_url};
 
 const YOUTUBE_MUSIC_URL: &str = "https://music.youtube.com";
@@ -49,6 +51,9 @@ const AD_BLOCK_SELF_TEST_SCRIPT: &str = r#"
 })();
 "#;
 
+const CHROME_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let settings = settings::load();
@@ -68,7 +73,11 @@ pub fn run() {
         quitting: Arc::new(AtomicBool::new(false)),
     };
     let state_for_events = state.clone();
-    let start_minimized = std::env::args().any(|argument| argument == "--minimized");
+    let start_in_tray =
+        std::env::args().any(|argument| argument == "--tray" || argument == "--start-to-tray");
+    let start_minimized = std::env::args().any(|argument| argument == "--minimized")
+        || (initial.start_minimized && !start_in_tray);
+    let should_start_hidden = start_in_tray || start_minimized;
 
     let mut builder = tauri::Builder::default();
 
@@ -82,7 +91,13 @@ pub fn run() {
     }
 
     builder
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    StateFlags::all() & !StateFlags::VISIBLE & !StateFlags::FULLSCREEN,
+                )
+                .build(),
+        )
         .on_window_event(move |window, event| match event {
             WindowEvent::Focused(focused) if window.label() == "main" => {
                 controls::set_local_shortcuts(window.app_handle(), *focused, &state_for_events);
@@ -96,6 +111,9 @@ pub fn run() {
             }
             WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed => {
                 state_for_events.presence.clear();
+                if let Some(main_window) = window.app_handle().get_webview_window("main") {
+                    windows_media::update(&main_window, None);
+                }
             }
             _ => {}
         })
@@ -106,20 +124,48 @@ pub fn run() {
             let blank_url = "about:blank"
                 .parse()
                 .expect("static about:blank URL must be valid");
+            let app_for_navigation = app.handle().clone();
             let app_for_new_window = app.handle().clone();
+            let settings_for_media = state.settings.clone();
+            let menu_components = controls::build_app_menu(app, &initial)?;
 
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(blank_url))
                 .title("YouTube Music")
                 .inner_size(1280.0, 840.0)
                 .min_inner_size(900.0, 620.0)
                 .center()
+                .visible(!should_start_hidden)
                 .zoom_hotkeys_enabled(false)
+                .user_agent(CHROME_USER_AGENT)
+                .menu(menu_components.menu)
                 .initialization_script(initialization_script(initial.ad_block))
                 .on_navigation(move |url| {
+                    if url_policy::is_auth_recovery_url(url) {
+                        static LAST_RECOVERY: std::sync::atomic::AtomicU64 =
+                            std::sync::atomic::AtomicU64::new(0);
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        let last = LAST_RECOVERY.load(std::sync::atomic::Ordering::Relaxed);
+                        if now.saturating_sub(last) >= 3 {
+                            LAST_RECOVERY.store(now, std::sync::atomic::Ordering::Relaxed);
+                            if let Some(window) = app_for_navigation.get_webview_window("main") {
+                                if let Ok(target) = Url::parse(YOUTUBE_MUSIC_URL) {
+                                    let _ = window.navigate(target);
+                                }
+                            }
+                        }
+                        return false;
+                    }
+
                     let allowed = is_allowed_navigation_url(url);
 
-                    if !is_youtube_music_url(url) {
+                    if !is_youtube_music_url(url) && !url_policy::is_auth_intermediate_url(url) {
                         presence_for_navigation.clear();
+                        if let Some(window) = app_for_navigation.get_webview_window("main") {
+                            windows_media::update(&window, None);
+                        }
                     }
                     if !allowed && url.scheme() == "https" {
                         platform::open_url(url.as_str());
@@ -153,10 +199,12 @@ pub fn run() {
                                     PresenceMessage::Track(track) => {
                                         let window_title = track.window_title();
                                         let _ = window.set_title(&window_title);
+                                        windows_media::update(&window, Some(&track));
                                         presence_for_window.update(track);
                                     }
                                     PresenceMessage::Clear => {
                                         let _ = window.set_title("YouTube Music");
+                                        windows_media::update(&window, None);
                                         presence_for_window.clear();
                                     }
                                 }
@@ -170,12 +218,54 @@ pub fn run() {
                     }
                 })
                 .build()?;
-            controls::install(app, state)?;
+            controls::install(app, state, menu_components.checks)?;
+            windows_media::install(&window, settings_for_media);
             let _ = window.set_zoom(initial.zoom.clamp(0.5, 2.0));
-            let _ = window.with_webview(move |webview| adblock_for_webview.install(webview));
+
+            let window_for_webview = window.clone();
+            let _ = window.with_webview(move |webview| {
+                adblock_for_webview.install(&webview);
+
+                #[cfg(windows)]
+                unsafe {
+                    if let Ok(core_webview) = webview.controller().CoreWebView2() {
+                        use webview2_com::ContainsFullScreenElementChangedEventHandler;
+                        let window_fs = window_for_webview.clone();
+                        let handler = ContainsFullScreenElementChangedEventHandler::create(Box::new(
+                            move |sender, _| {
+                                let mut contains = windows::core::BOOL::default();
+                                if let Some(sender) = sender {
+                                    let _ = sender.ContainsFullScreenElement(&mut contains);
+                                }
+                                let is_fullscreen = contains.as_bool();
+                                let _ = window_fs.set_fullscreen(is_fullscreen);
+                                if is_fullscreen {
+                                    let _ = window_fs.hide_menu();
+                                } else {
+                                    let _ = window_fs.show_menu();
+                                }
+                                Ok(())
+                            },
+                        ));
+                        let mut token = 0i64;
+                        let _ = core_webview
+                            .add_ContainsFullScreenElementChanged(&handler, &mut token);
+                    }
+                }
+            });
+
             window.navigate(music_url)?;
-            if start_minimized {
+            if start_in_tray {
                 let _ = window.hide();
+            } else if start_minimized {
+                #[cfg(windows)]
+                if let Ok(hwnd) = window.hwnd() {
+                    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWMINNOACTIVE};
+                    unsafe {
+                        let _ = ShowWindow(hwnd, SW_SHOWMINNOACTIVE);
+                    }
+                }
+                let _ = window.minimize();
             }
             updates::check_in_background(true);
 

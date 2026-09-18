@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.9 - 2026-09-18
+
+### Features
+
+- Added Windows taskbar thumbnail media controls (Previous, Play/Pause, Next).
+- Added smooth 32-bit ARGB anti-aliased media icons with instant state toggle.
+- Added standalone "Start Minimized" to taskbar support.
+
+### Fixes
+
+- Fixed native menu bar not showing on some display scaling and GPU setups.
+- Fixed app ignoring clicks after idle by disabling window occlusion throttling.
+- Fixed Google sign-in redirect loops by supporting all regional Google ccTLDs.
+- Auto-hide menu bar when entering video fullscreen.
+- Preserved window state without overriding startup minimize and tray settings.
+
 ## 0.1.8 - 2026-07-26
 
 ### Fixes
